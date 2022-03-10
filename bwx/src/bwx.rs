@@ -5,6 +5,7 @@ use std::io::{Cursor, Read};
 use byteorder::{LittleEndian, ReadBytesExt};
 
 #[derive(Default)]
+/// A BWX class to handle ShiningLore BNX / PNX file
 pub struct BWX {
     data: Cursor<Vec<u8>>,
     size: usize,
@@ -13,6 +14,19 @@ pub struct BWX {
 }
 
 impl BWX {
+    /// Returns a BWX with the given file name
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - A string slice that holds the file name of a BNX / PNX file
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bwx::BWX;
+    /// let bwx = BWX::new();
+    /// assert_eq!(1,1);
+    /// ```
     pub fn new() -> Self {
         BWX { ..Default::default() }
     }

@@ -1,6 +1,6 @@
 use std::io::{Cursor, Read};
 use byteorder::{LittleEndian, ReadBytesExt};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 // u8, i8, u16, i16, u32, i32, u64, i64, u128, i128, usize, isize, f32, f64
 enum SlData {
@@ -56,38 +56,14 @@ impl BWX {
         self.check_bwx_header()?;
         self.content.set_position(4);
 
-        (self.size, self.blocks) = self.read_block_size_number()?;
-        debug!(self.size, self.blocks);
+        let (size, mut blocks) = self.read_block_size_number()?;
+        debug!(size, blocks);
 
-        for i in 0..self.blocks {
-            debug!("Block {i}");
-            // TODO: Debug, process no more than 3 blocks
-            if i == 3 {
-                break;
-            }
-
+        while blocks > 0 {
             let name = self.read_string()?;
             debug!("section name: {name}");
             let _data = self.parse_block();
-            /*
-            match name.as_str() {
-                "0" => {
-                    // TODO: Add the data to Vector
-                    let _data = self.parse_block();
-                }
-                "HEAD" => {
-                    self.parse_head()?;
-                }
-                "MTRL" => {
-                    self.parse_material()?;
-                }
-                _ => {
-                    error!("Unhandled section: {name}");
-                    panic!("Unhandled section: {name}");
-                }
-            }
-
-             */
+            blocks -= 1;
         }
 
         Ok(())
@@ -127,7 +103,6 @@ impl BWX {
         Ok((self.read_i32_packed()?, self.read_i32_packed()?))
     }
 
-
     /// Read string
     fn read_string(&mut self) -> Result<String> {
         let length = self.content.read_u8()?;
@@ -140,70 +115,93 @@ impl BWX {
             error!("Failed to convert string from Korean to UTF-8!");
             Ok(String::from_utf8_lossy(&buffer).trim_matches('\0').to_string())
         } else {
-            Ok(cow.to_string())
+            Ok(cow.trim_matches('\0').to_string())
         }
     }
 
-    ///
+    /// Parse block
     #[tracing::instrument(skip(self))]
     fn parse_block(&mut self) -> Result<SlData> {
-        let signature = char::from(self.content.read_u8()?);
-
-        debug!("SL_TYPE: {}", signature);
+        let signature = self.content.read_u8()?;
 
         match signature {
-            'S' => {
-                let value = self.read_string()?;
-                debug!("String: {value}");
-                Ok(SlData::String(value))
-            }
-            'A' => {
-                let (size, blocks) = self.read_block_size_number()?;
-                debug!("Block size and numbers: {size}, {blocks}");
-
-                for i in 0..blocks {
-                    debug!("---------- Block {}", i+1);
+            0x41 => { // Signature A
+                let (size, mut blocks) = self.read_block_size_number()?;
+                trace!("[Signature A] - Size: {}, Blocks: {}", size, blocks);
+                while blocks > 0 {
                     let _data = self.parse_block();
-                    //blocks -= 1;
+                    blocks -= 1;
                 }
                 Ok(SlData::None)
-                //Ok(SlData::BlockSizeNumber(size, blocks))
             }
-            'I' => {
-                let value = self.content.read_i32::<LittleEndian>()?;
-                debug!("Integer: {value}");
-                Ok(SlData::I32(value))
+            0x42 => { // Signature B
+                let size = self.read_i32_packed()? as u64;
+                trace!("[Signature B] - Size: {}", size);
+                //warn!("Unhandled signature 'B' block data!!! - {}@{}", file!(), line!());
+                self.content.set_position(self.content.position() + size);
+                Ok(SlData::None)
             }
-            'W' => {
-                let value = self.content.read_i16::<LittleEndian>()?;
-                debug!("Word: {value}");
-                Ok(SlData::I16(value))
+            0x43 => { // Signature C
+                let value = -self.content.read_i8()?;
+                trace!("[Signature C] - Value: {}", value);
+                Ok(SlData::I8(value))
             }
-            'F' => {
+            0x44 => { // Signature D
+                let (size, mut blocks) = self.read_block_size_number()?;
+                while blocks > 0 {
+                    let name = self.read_string()?;
+                    trace!("[Signature D] - Name: {}", name);
+                    debug!("[Signature D] - Name: {}", name);
+                    let _data = self.parse_block();
+                    blocks -= 1;
+                }
+                Ok(SlData::None)
+            }
+            0x46 => { // Signature F
                 let value = self.content.read_f32::<LittleEndian>()?;
-                debug!("Float: {:.3}", value);
+                trace!("[Signature F] - Value: {:.3}", value);
                 Ok(SlData::F32(value))
             }
-            'Y' => {
+            0x48 => { // Signature H
+                let value = -self.content.read_i16::<LittleEndian>()?;
+                trace!("[Signature H] - Value: {}", value);
+                Ok(SlData::I16(value))
+            }
+            0x49 => { // Signature I
+                let value = self.content.read_i32::<LittleEndian>()?;
+                trace!("[Signature I] - Value: {}", value);
+                Ok(SlData::I32(value))
+            }
+            0x53 => { // Signature S
+                let value = self.read_string()?;
+                trace!("[Signature S] - Value: {}", value);
+                Ok(SlData::String(value))
+            }
+            0x57 => { // Signature W
+                let value = self.content.read_i16::<LittleEndian>()?;
+                trace!("[Signature W] - Value: {}", value);
+                Ok(SlData::I16(value))
+            }
+            0x59 => { // Signature Y
                 let value = self.content.read_u8()?;
-                debug!("Independent data [Y]: {value}");
+                trace!("[Signature Y] - Value: {}", value);
                 Ok(SlData::U8(value))
             }
-            'C' => {
-                let value = self.content.read_u8()?;
-                let value = -(value as i8);
-                debug!("Independent data [C]: {value}");
-                //panic!("Debug!");
-                Ok(SlData::I8(value))
-                //Ok(SlData::U8(value))
-            }
-            t  if (t as u32) < 0x20 => {
+            s if s < 0x20 => {
                 // Independent data
-                debug!("Independent data: {}", t as u8);
-                Ok(SlData::U8(t as u8))
+                trace!("[Independent Data] - Value: {}", s);
+                Ok(SlData::U8(s))
+            }
+            s  if s >= 0x80 => {
+                // Independent data block
+                let size = s as u64 & 0x7f;
+                trace!("[Independent Data Block] - Size: {}", size);
+                //warn!("Unhandled independent data block!!! - {}@{}", file!(), line!());
+                self.content.set_position(self.content.position() + size);
+                Ok(SlData::None)
             }
             _ => {
-                error!("Unhandled type {}, pointer: {}", signature, self.content.position());
+                error!("Unhandled signature = 0x{:02x}, position: {}", signature, self.content.position());
                 panic!("Unhandled type {}", signature);
             }
         }

@@ -1,13 +1,16 @@
-use std::io::{self, Cursor, Error, ErrorKind, Read};
+use std::io::{Cursor, Read};
 use byteorder::{LittleEndian, ReadBytesExt};
-use tracing::{debug, error, info, span, warn, Level, trace};
-use tracing::field::debug;
+use tracing::{debug, error, info, warn};
 
+// u8, i8, u16, i16, u32, i32, u64, i64, u128, i128, usize, isize, f32, f64
 enum SlData {
+    U8(u8),
     I16(i16),
     I32(i32),
+    F32(f32),
     String(String),
     BlockSizeNumber(i32, i32),
+    None,
 }
 
 #[derive(Debug, Default)]
@@ -21,6 +24,8 @@ pub struct BWX {
 }
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+
+static mut COUNT: u32 = 0;
 
 impl BWX {
     /// Returns a BWX with the given file name
@@ -50,22 +55,20 @@ impl BWX {
         self.check_bwx_header()?;
         self.content.set_position(4);
 
-        /*
-        (self.size, self.blocks) = match self.read_block_size_number()? {
-            SlData::BlockSizeNumber(size, blocks) => (size, blocks),
-            SlData::I32(_) => {}
-            SlData::String(_) => {}
-        };
-         */
         (self.size, self.blocks) = self.read_block_size_number()?;
-
         debug!(self.size, self.blocks);
-
 
         for i in 0..self.blocks {
             debug!("Block {i}");
+            // TODO: Debug, process no more than 3 blocks
+            if i == 3 {
+                break;
+            }
 
             let name = self.read_string()?;
+            debug!("section name: {name}");
+            let _data = self.parse_block();
+            /*
             match name.as_str() {
                 "0" => {
                     // TODO: Add the data to Vector
@@ -74,13 +77,16 @@ impl BWX {
                 "HEAD" => {
                     self.parse_head()?;
                 }
+                "MTRL" => {
+                    self.parse_material()?;
+                }
                 _ => {
                     error!("Unhandled section: {name}");
                     panic!("Unhandled section: {name}");
                 }
             }
 
-            debug!("section name: {name}");
+             */
         }
 
         Ok(())
@@ -120,6 +126,7 @@ impl BWX {
         Ok((self.read_i32_packed()?, self.read_i32_packed()?))
     }
 
+
     /// Read string
     fn read_string(&mut self) -> Result<String> {
         let length = self.content.read_u8()?;
@@ -127,25 +134,46 @@ impl BWX {
         buffer.resize(length as usize, 0);
         self.content.read_exact(&mut buffer)?;
 
-        Ok(String::from_utf8_lossy(&buffer).trim_matches('\0').to_string())
+        let (cow, _encoding, had_errors) = encoding_rs::EUC_KR.decode(&buffer);
+        if had_errors {
+            error!("Failed to convert string from Korean to UTF-8!");
+            Ok(String::from_utf8_lossy(&buffer).trim_matches('\0').to_string())
+        } else {
+            Ok(cow.to_string())
+        }
     }
 
     ///
     #[tracing::instrument(skip(self))]
     fn parse_block(&mut self) -> Result<SlData> {
-        let sl_type = char::from(self.content.read_u8()?);
+        let sl_type1 = self.content.read_u8()?;
+        let sl_type = char::from(sl_type1);
 
-        debug!("SL_TYPE: {sl_type}");
+        debug!("SL_TYPE: {sl_type}, {:04x}", sl_type1);
+        unsafe {
+            COUNT += 1;
+            if COUNT > 50 {
+                panic!("Over 100 times");
+            }
+        }
+
         match sl_type {
             'S' => {
                 let value = self.read_string()?;
                 debug!("String: {value}");
                 Ok(SlData::String(value))
             }
-            'A' | 'D' => {
+            'A' => {
                 let (size, blocks) = self.read_block_size_number()?;
                 debug!("Block size and numbers: {size}, {blocks}");
-                Ok(SlData::BlockSizeNumber(size, blocks))
+
+                for i in 0..blocks {
+                    debug!("---------- Block {}", i+1);
+                    let _data = self.parse_block();
+                    //blocks -= 1;
+                }
+                Ok(SlData::None)
+                //Ok(SlData::BlockSizeNumber(size, blocks))
             }
             'I' => {
                 let value = self.content.read_i32::<LittleEndian>()?;
@@ -157,8 +185,18 @@ impl BWX {
                 debug!("Word: {value}");
                 Ok(SlData::I16(value))
             }
+            'F' => {
+                let value = self.content.read_f32::<LittleEndian>()?;
+                debug!("Float: {:.3}", value);
+                Ok(SlData::F32(value))
+            }
+            t  if (t as u32) < 0x20 => {
+                // TODO: Confirm what's going on and return proper value
+                warn!("UNKNOWN TYPE, treat as one unsigned byte, 0x{:02x}", t as u32);
+                Ok(SlData::U8(t as u8))
+            }
             _ => {
-                error!("Unhandled type {sl_type}");
+                error!("Unhandled type {sl_type}, pointer: {}", self.content.position());
                 panic!("Unhandled type {sl_type}");
             }
         }
@@ -167,11 +205,7 @@ impl BWX {
     /// Parse 'HEAD" block
     #[tracing::instrument(skip(self))]
     fn parse_head(&mut self) -> Result<()> {
-        let (size, mut blocks) = match self.parse_block()? {
-            SlData::BlockSizeNumber(s, b) => (s, b),
-            _ => (0, 0),
-        };
-        //let a=self.parse_block()?;
+        let (size, mut blocks) = match_block_size_number(self.parse_block()?)?;
         debug!("HEAD: size = {size}, blocks = {blocks}");
         while blocks > 0 {
             let _data = self.parse_block();
@@ -179,6 +213,27 @@ impl BWX {
         }
 
         Ok(())
+    }
+
+    /// Parse 'MTRL" block
+    #[tracing::instrument(skip(self))]
+    fn parse_material(&mut self) -> Result<()> {
+        let (size, mut blocks) = match_block_size_number(self.parse_block()?)?;
+        debug!("MTRL: size = {size}, blocks = {blocks}");
+        while blocks > 0 {
+            let _data = self.parse_block();
+            blocks -= 1;
+        }
+
+        Ok(())
+    }
+}
+
+/// Match block size & numbers
+fn match_block_size_number(data: SlData) -> Result<(i32, i32)> {
+    match data {
+        SlData::BlockSizeNumber(s, b) => Ok((s, b)),
+        _ => Err("Cannot match SlData::BlockSizeNumber")?,
     }
 }
 
@@ -213,3 +268,4 @@ mod tests {
         assert_eq!(bwx.read_string().unwrap().as_str(), "0", "The string should be '0'");
     }
 }
+

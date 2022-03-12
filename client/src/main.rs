@@ -1,6 +1,5 @@
 use bwx::BWX;
-use tracing::{error, Level, warn};
-use tracing_subscriber::{FmtSubscriber};
+use tracing::Level;
 
 
 fn main() {

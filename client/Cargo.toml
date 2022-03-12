@@ -7,3 +7,5 @@ edition = "2021"
 
 [dependencies]
 sl-bwx = { path = "../bwx", version = "0.1.0" }
+tracing = "0.1.32"
+tracing-subscriber = "0.3.9"

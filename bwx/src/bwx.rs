@@ -1,7 +1,8 @@
 use std::io::{self, Cursor, Read};
 use byteorder::ReadBytesExt;
+use tracing::{debug, error, info, span, warn, Level, trace};
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 /// A BWX class to handle ShiningLore BNX / PNX file
 pub struct BWX {
     data: Cursor<Vec<u8>>,
@@ -13,10 +14,11 @@ pub struct BWX {
 impl BWX {
     /// Returns a BWX with the given file name
     ///
-    /// # Arguments
-    ///
-    /// * `path` - A string slice that holds the file name of a BNX / PNX file
-    ///
+    // /// TODO: Merge load_from_file() to new()
+    // /// # Arguments
+    // ///
+    // /// * `path` - A string slice that holds the file name of a BNX / PNX file
+    // ///
     /// # Examples
     ///
     /// ```
@@ -28,7 +30,7 @@ impl BWX {
     }
 
     pub fn load_from_file(&mut self, filename: &str) -> Result<(), Box<dyn std::error::Error>> {
-        println!("Read from file: {filename}");
+        info!("Read from file: {filename}");
 
         let data = std::fs::read(filename)?;
         self.data = Cursor::new(data);
@@ -39,12 +41,13 @@ impl BWX {
 
         self.size = self.read_i32_packed()?;
         self.blocks = self.read_i32_packed()?;
-        println!("sz: {}, blocks: {}", self.size, self.blocks);
+        info!(filename, self.size, blocks=self.blocks);
+        debug!("sz: {}, blocks: {}", self.size, self.blocks);
 
         let name = self.read_string()?;
-        println!("section name: {name}");
+        debug!("section name: {name}");
 
-        println!("Pointer: {}", self.data.position());
+        info!("Pointer: {}", self.data.position());
 
         Ok(())
     }

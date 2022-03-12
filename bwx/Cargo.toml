@@ -8,3 +8,4 @@ name = "bwx"
 
 [dependencies]
 byteorder = "1.4.3"
+tracing = "0.1.32"

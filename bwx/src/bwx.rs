@@ -5,6 +5,7 @@ use tracing::{debug, error, info, warn};
 // u8, i8, u16, i16, u32, i32, u64, i64, u128, i128, usize, isize, f32, f64
 enum SlData {
     U8(u8),
+    I8(i8),
     I16(i16),
     I32(i32),
     F32(f32),
@@ -146,18 +147,11 @@ impl BWX {
     ///
     #[tracing::instrument(skip(self))]
     fn parse_block(&mut self) -> Result<SlData> {
-        let sl_type1 = self.content.read_u8()?;
-        let sl_type = char::from(sl_type1);
+        let signature = char::from(self.content.read_u8()?);
 
-        debug!("SL_TYPE: {sl_type}, {:04x}", sl_type1);
-        unsafe {
-            COUNT += 1;
-            if COUNT > 50 {
-                panic!("Over 100 times");
-            }
-        }
+        debug!("SL_TYPE: {}", signature);
 
-        match sl_type {
+        match signature {
             'S' => {
                 let value = self.read_string()?;
                 debug!("String: {value}");
@@ -190,14 +184,27 @@ impl BWX {
                 debug!("Float: {:.3}", value);
                 Ok(SlData::F32(value))
             }
+            'Y' => {
+                let value = self.content.read_u8()?;
+                debug!("Independent data [Y]: {value}");
+                Ok(SlData::U8(value))
+            }
+            'C' => {
+                let value = self.content.read_u8()?;
+                let value = -(value as i8);
+                debug!("Independent data [C]: {value}");
+                //panic!("Debug!");
+                Ok(SlData::I8(value))
+                //Ok(SlData::U8(value))
+            }
             t  if (t as u32) < 0x20 => {
-                // TODO: Confirm what's going on and return proper value
-                warn!("UNKNOWN TYPE, treat as one unsigned byte, 0x{:02x}", t as u32);
+                // Independent data
+                debug!("Independent data: {}", t as u8);
                 Ok(SlData::U8(t as u8))
             }
             _ => {
-                error!("Unhandled type {sl_type}, pointer: {}", self.content.position());
-                panic!("Unhandled type {sl_type}");
+                error!("Unhandled type {}, pointer: {}", signature, self.content.position());
+                panic!("Unhandled type {}", signature);
             }
         }
     }

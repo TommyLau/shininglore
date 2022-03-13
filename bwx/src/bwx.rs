@@ -5,7 +5,7 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use tracing::{debug, error, info, trace, warn};
 
 // u8, i8, u16, i16, u32, i32, u64, i64, u128, i128, usize, isize, f32, f64
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SlData {
     UChar(u8),
     Char(i8),
@@ -13,12 +13,11 @@ pub enum SlData {
     Int(i32),
     Float(f32),
     String(String),
-    BlockSizeNumber(i32, i32),
     Data(Vec<u8>),
     None,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Node {
     pub data: SlData,
     pub children: Vec<Rc<RefCell<Node>>>,
@@ -32,8 +31,6 @@ pub struct BWX {
 }
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-
-static mut COUNT: u32 = 0;
 
 impl Default for Node {
     fn default() -> Self {
@@ -80,12 +77,15 @@ impl BWX {
     /// let bwx = BWX::new();
     /// ```
     pub fn new() -> Self {
-        BWX { ..Default::default() }
+        BWX {
+            node: Node::new(SlData::String("root".into())),
+            ..Default::default()
+        }
     }
 
     #[tracing::instrument(skip(self, filename))]
     pub fn load_from_file(&mut self, filename: &str) -> Result<()> {
-        trace!(filename);
+        info!(filename);
 
         let data = std::fs::read(filename)?;
         self.content = Cursor::new(data);
@@ -98,20 +98,56 @@ impl BWX {
 
         while blocks > 0 {
             let name = self.read_string()?;
-            trace!("section name: {}", name);
-            let node = Rc::new(RefCell::new(Node {
-                children: vec![],
-                data: SlData::String(name),
-            }));
-            let res_node = self.parse_block()?;
-            node.borrow_mut().children.push(res_node);
-            // Try to parse into list
+            trace!("Main block name: {}", name);
+            let node = return_wrapped_pointer(SlData::String(name));
+            self.go_through(&node)?;
             self.node.children.push(node);
-
             blocks -= 1;
         }
 
-        debug!("{:#?}", self.node);
+        // Parse data and get mesh data
+        self.parse_mesh()?;
+
+        Ok(())
+    }
+
+    ///
+    fn parse_mesh(&self) -> Result<()> {
+        /*
+        let name = match &node.data {
+            SlData::String(s) => s,
+            _ => "",
+        };
+        debug!("{:#?}",name);
+        debug!("{:#?}",node.children.len());
+
+         */
+        let mut data = Vec::new();
+
+        for child in self.node.children.iter() {
+            debug!("{:?}", child.borrow_mut().data);
+            if let SlData::String(s) = &child.borrow_mut().data {
+                match s.as_str() {
+                    "DXOBJ" | "SPOB" => {
+                        debug!("{:?}", s);
+                        data.push(child.clone());
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // working ok
+        /*
+        for d in data.iter() {
+            debug!("{:#?}", d.borrow_mut().data);
+            let e = d.borrow_mut().children.get(0).unwrap().clone();
+            debug!("len: {}", e.borrow_mut().children.len());
+        }
+
+         */
+
+        //debug!("{:#?}", data);
 
         Ok(())
     }
@@ -120,7 +156,7 @@ impl BWX {
     fn check_bwx_header(&mut self) -> Result<()> {
         let header = &self.content.get_ref()[..4];
         if header != "BWXF".as_bytes() {
-            return Err("Invalid BWX file.")?;
+            return Err("Invalid BWX file.".into());
         }
 
         Ok(())
@@ -166,85 +202,85 @@ impl BWX {
         }
     }
 
-    /// Parse block
-    #[tracing::instrument(skip(self))]
-    fn parse_block(&mut self) -> Result<Rc<RefCell<Node>>> {
+    /// Go through the whole BWX file
+    //#[tracing::instrument(skip(self))]
+    //fn go_through(&mut self, node: &Rc<RefCell<Node>>) -> Result<Rc<RefCell<Node>>> {
+    #[tracing::instrument(skip(self, node))]
+    fn go_through(&mut self, node: &Rc<RefCell<Node>>) -> Result<()> {
         let signature = self.content.read_u8()?;
 
-        match signature {
+        let data = match signature {
             0x41 => { // Signature A
                 let (size, mut blocks) = self.read_block_size_number()?;
                 trace!("[Signature A] - Size: {}, Blocks: {}", size, blocks);
-                let res_node = Rc::new(RefCell::new(Node::default()));
+                //let res_node = node;
                 while blocks > 0 {
-                    let res_children_node = self.parse_block()?;
-                    res_node.borrow_mut().children.push(res_children_node);
+                    self.go_through(node)?;
+                    //res_node.borrow_mut().children.push(res_children_node);
                     blocks -= 1;
                 }
-                Ok(res_node)
+                return Ok(());
             }
             0x42 => { // Signature B
                 let size = self.read_i32_packed()?;
                 trace!("[Signature B] - Size: {}", size);
                 let mut buffer: Vec<u8> = Vec::new();
                 buffer.resize(size as usize, 0);
-                self.content.read_exact(&mut buffer);
-                Ok(return_wrapped_pointer(SlData::Data(buffer)))
+                self.content.read_exact(&mut buffer)?;
+                SlData::Data(buffer)
             }
             0x43 => { // Signature C
                 let value = -self.content.read_i8()?;
                 trace!("[Signature C] - Value: {}", value);
-                Ok(return_wrapped_pointer(SlData::Char(value)))
+                SlData::Char(value)
             }
             0x44 => { // Signature D
                 let (size, mut blocks) = self.read_block_size_number()?;
                 trace!("[Signature D] - Size: {}, Blocks: {}", size, blocks);
-                let node = Rc::new(RefCell::new(Node::default()));
                 while blocks > 0 {
                     let name = self.read_string()?;
                     trace!("[Signature D] - Name: {}", name);
                     let res_node = return_wrapped_pointer(SlData::String(name));
-                    let res_children_node = self.parse_block()?;
-                    res_node.borrow_mut().children.push(res_children_node);
+                    self.go_through(&res_node)?;
                     node.borrow_mut().children.push(res_node);
                     blocks -= 1;
                 }
-                Ok(node)
+                return Ok(());
             }
             0x46 => { // Signature F
                 let value = self.content.read_f32::<LittleEndian>()?;
                 trace!("[Signature F] - Value: {:.3}", value);
-                Ok(return_wrapped_pointer(SlData::Float(value)))
+                SlData::Float(value)
             }
             0x48 => { // Signature H
                 let value = -self.content.read_i16::<LittleEndian>()?;
                 trace!("[Signature H] - Value: {}", value);
-                Ok(return_wrapped_pointer(SlData::Word(value)))
+                SlData::Word(value)
             }
             0x49 => { // Signature I
                 let value = self.content.read_i32::<LittleEndian>()?;
                 trace!("[Signature I] - Value: {}", value);
-                Ok(return_wrapped_pointer(SlData::Int(value)))
+                SlData::Int(value)
             }
             0x53 => { // Signature S
                 let value = self.read_string()?;
                 trace!("[Signature S] - Value: {}", value);
-                Ok(return_wrapped_pointer(SlData::String(value)))
+                SlData::String(value)
             }
             0x57 => { // Signature W
                 let value = self.content.read_i16::<LittleEndian>()?;
                 trace!("[Signature W] - Value: {}", value);
-                Ok(return_wrapped_pointer(SlData::Word(value)))
+                SlData::Word(value)
             }
             0x59 => { // Signature Y
                 let value = self.content.read_u8()?;
                 trace!("[Signature Y] - Value: {}", value);
-                Ok(return_wrapped_pointer(SlData::UChar(value)))
+                SlData::UChar(value)
             }
             s if s < 0x20 => {
                 // Independent data
                 trace!("[Independent Data] - Value: {}", s);
-                Ok(return_wrapped_pointer(SlData::UChar(s)))
+                SlData::UChar(s)
             }
             s  if s >= 0x80 => {
                 // Independent data block
@@ -252,50 +288,18 @@ impl BWX {
                 trace!("[Independent Data Block] - Size: {}", size);
                 let mut buffer: Vec<u8> = Vec::new();
                 buffer.resize(size, 0);
-                self.content.read_exact(&mut buffer);
-                Ok(return_wrapped_pointer(SlData::Data(buffer)))
+                self.content.read_exact(&mut buffer)?;
+                SlData::Data(buffer)
             }
             _ => {
                 error!("Unhandled signature = 0x{:02x}, position: {}", signature, self.content.position());
+                //debug!("{:#?}", self.node);
                 panic!("Unhandled type {}", signature);
             }
-        }
-    }
+        };
 
-    /*
-    /// Parse 'HEAD" block
-    #[tracing::instrument(skip(self))]
-    fn parse_head(&mut self) -> Result<()> {
-        let (size, mut blocks) = match_block_size_number(self.parse_block()?)?;
-        debug!("HEAD: size = {size}, blocks = {blocks}");
-        while blocks > 0 {
-            let _data = self.parse_block();
-            blocks -= 1;
-        }
-
+        node.borrow_mut().children.push(return_wrapped_pointer(data));
         Ok(())
-    }
-
-    /// Parse 'MTRL" block
-    #[tracing::instrument(skip(self))]
-    fn parse_material(&mut self) -> Result<()> {
-        let (size, mut blocks) = match_block_size_number(self.parse_block()?)?;
-        debug!("MTRL: size = {size}, blocks = {blocks}");
-        while blocks > 0 {
-            let _data = self.parse_block();
-            blocks -= 1;
-        }
-
-        Ok(())
-    }
-     */
-}
-
-/// Match block size & numbers
-fn match_block_size_number(data: SlData) -> Result<(i32, i32)> {
-    match data {
-        SlData::BlockSizeNumber(s, b) => Ok((s, b)),
-        _ => Err("Cannot match SlData::BlockSizeNumber")?,
     }
 }
 

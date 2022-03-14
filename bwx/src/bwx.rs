@@ -76,39 +76,41 @@ impl Node {
     /// let node = Node::new(SlData::String("root".into()));
     /// let res_node = node.find_block("root");
     /// ```
-    #[tracing::instrument(skip(self))]
-    pub fn find_block(&self, name: &str) -> Node {
-        /*
-        for child in self.children.iter() {
+    #[tracing::instrument(skip(self, name))]
+    pub fn find_block(&self, name: &str) -> Option<Node> {
+        let children =
+            if let Some(c) = &self.children { c } else {
+                return None;
+            };
+
+        for child in children.iter() {
             match &child.borrow().data {
                 SlData::String(string) => {
                     if string == name {
-                        debug!("Found block: [{}]", string);
-                        return self.clone();
-                    } else {
-                        let res_node = child.borrow().find_block(name);
-                        if let SlData::None = &res_node.data {} else { return res_node; }
+                        info!("Found String: [{}]", string);
+                        return if child.borrow().children.is_some() {
+                            Some(child.borrow().clone())
+                        } else {
+                            Some(self.clone())
+                        };
                     }
                 }
-                SlData::Array => {
-                    let res_node = child.borrow().find_block(name);
-                    debug!("Array: {:?}", res_node);
-                    if let SlData::None = &res_node.data {} else { return res_node; }
-                }
+                SlData::Array => {}
                 SlData::DArray(string) => {
-                    return if string == name {
-                        debug!("Found D-block: [{}]", string);
-                        child.borrow().clone()
-                    } else {
-                        child.borrow().find_block(name)
-                    };
+                    if string == name {
+                        info!("Found D-Array: [{}]", string);
+                        return Some(child.borrow().clone());
+                    }
                 }
-                _ => {}
+                _ => {
+                    continue;
+                }
             }
+            let res_node = child.borrow().find_block(name);
+            if res_node.is_some() { return res_node; }
         }
 
-         */
-        Node::new(SlData::None)
+        None
     }
 }
 
@@ -181,13 +183,17 @@ impl BWX {
         debug!("{:#?}",node.children.len());
 
          */
-        let node = self.node.find_block("0");
+        //let node = self.node.find_block("0");
+        //let node = self.node.find_block("SLBWX");
+        //let node = self.node.find_block("head block");
+        //let node = self.node.find_block("SUBMTRL");
         //debug!("{:#?}", node.data);
-        let slbwx = node.find_block("SLBWX");
+        // let slbwx = node.find_block("SLBWX");
         let spob = self.node.find_block("SPOB");
         let dxobj = self.node.find_block("DXOBJ");
-        debug!("{:#?}", self.node);
-        panic!("Debug");
+        //let node = self.node.find_block("VISB");
+        debug!("{:#?}", dxobj);
+        //debug!("{:#?}", spob);
 
         /*
         let mut data = Vec::new();

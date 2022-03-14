@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 use std::io::{Cursor, Read};
 use std::rc::Rc;
 use byteorder::{LittleEndian, ReadBytesExt};
@@ -14,13 +14,15 @@ pub enum SlData {
     Float(f32),
     String(String),
     Data(Vec<u8>),
+    Array,
+    DArray(String),
     None,
 }
 
 #[derive(Debug, Clone)]
 pub struct Node {
     pub data: SlData,
-    pub children: Vec<Rc<RefCell<Node>>>,
+    pub children: Option<Vec<Rc<RefCell<Node>>>>,
 }
 
 #[derive(Debug, Default)]
@@ -36,7 +38,7 @@ impl Default for Node {
     fn default() -> Self {
         Node {
             data: SlData::None,
-            children: vec![],
+            children: None,
         }
     }
 }
@@ -60,6 +62,54 @@ impl Node {
             ..Default::default()
         }
     }
+
+    /// Find a block with the given name
+    ///
+    /// # Arguments
+    ///
+    /// * name - The name of the block
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bwx::{Node, SlData};
+    /// let node = Node::new(SlData::String("root".into()));
+    /// let res_node = node.find_block("root");
+    /// ```
+    #[tracing::instrument(skip(self))]
+    pub fn find_block(&self, name: &str) -> Node {
+        /*
+        for child in self.children.iter() {
+            match &child.borrow().data {
+                SlData::String(string) => {
+                    if string == name {
+                        debug!("Found block: [{}]", string);
+                        return self.clone();
+                    } else {
+                        let res_node = child.borrow().find_block(name);
+                        if let SlData::None = &res_node.data {} else { return res_node; }
+                    }
+                }
+                SlData::Array => {
+                    let res_node = child.borrow().find_block(name);
+                    debug!("Array: {:?}", res_node);
+                    if let SlData::None = &res_node.data {} else { return res_node; }
+                }
+                SlData::DArray(string) => {
+                    return if string == name {
+                        debug!("Found D-block: [{}]", string);
+                        child.borrow().clone()
+                    } else {
+                        child.borrow().find_block(name)
+                    };
+                }
+                _ => {}
+            }
+        }
+
+         */
+        Node::new(SlData::None)
+    }
 }
 
 impl BWX {
@@ -78,7 +128,10 @@ impl BWX {
     /// ```
     pub fn new() -> Self {
         BWX {
-            node: Node::new(SlData::String("root".into())),
+            node: Node {
+                data: SlData::String("root".into()),
+                children: Some(vec![]),
+            },
             ..Default::default()
         }
     }
@@ -99,9 +152,14 @@ impl BWX {
         while blocks > 0 {
             let name = self.read_string()?;
             trace!("Main block name: {}", name);
-            let node = return_wrapped_pointer(SlData::String(name));
+            //let node = return_wrapped_pointer(SlData::String(name));
+            let node = Rc::new(RefCell::new(Node {
+                data: SlData::String(name),
+                children: Some(vec![]),
+            }));
             self.go_through(&node)?;
-            self.node.children.push(node);
+            //self.node.children.push(node);
+            self.node.children.as_mut().unwrap().push(node);
             blocks -= 1;
         }
 
@@ -110,6 +168,7 @@ impl BWX {
 
         Ok(())
     }
+
 
     ///
     fn parse_mesh(&self) -> Result<()> {
@@ -122,6 +181,15 @@ impl BWX {
         debug!("{:#?}",node.children.len());
 
          */
+        let node = self.node.find_block("0");
+        //debug!("{:#?}", node.data);
+        let slbwx = node.find_block("SLBWX");
+        let spob = self.node.find_block("SPOB");
+        let dxobj = self.node.find_block("DXOBJ");
+        debug!("{:#?}", self.node);
+        panic!("Debug");
+
+        /*
         let mut data = Vec::new();
 
         for child in self.node.children.iter() {
@@ -138,17 +206,21 @@ impl BWX {
         }
 
         // working ok
-        /*
         for d in data.iter() {
+            debug!("len: {}", d.borrow_mut().children.len());
+            /*
             debug!("{:#?}", d.borrow_mut().data);
-            let e = d.borrow_mut().children.get(0).unwrap().clone();
-            debug!("len: {}", e.borrow_mut().children.len());
+            debug!("len: {}", d.borrow_mut().children.len());
+            debug!("{:#?}", d.borrow_mut().children);
+             */
+            //let e = d.borrow_mut().children.get(0).unwrap().clone();
+            //debug!("len: {}", e.borrow_mut().children.len());
         }
-
-         */
 
         //debug!("{:#?}", data);
 
+
+         */
         Ok(())
     }
 
@@ -213,12 +285,17 @@ impl BWX {
             0x41 => { // Signature A
                 let (size, mut blocks) = self.read_block_size_number()?;
                 trace!("[Signature A] - Size: {}, Blocks: {}", size, blocks);
-                //let res_node = node;
+                //let res_node = return_wrapped_pointer(SlData::Array);
+                let res_node = Rc::new(RefCell::new(Node {
+                    data: SlData::Array,
+                    children: Some(vec![]),
+                }));
                 while blocks > 0 {
-                    self.go_through(node)?;
+                    self.go_through(&res_node)?;
                     //res_node.borrow_mut().children.push(res_children_node);
                     blocks -= 1;
                 }
+                node.borrow_mut().children.as_mut().unwrap().push(res_node);
                 return Ok(());
             }
             0x42 => { // Signature B
@@ -240,9 +317,12 @@ impl BWX {
                 while blocks > 0 {
                     let name = self.read_string()?;
                     trace!("[Signature D] - Name: {}", name);
-                    let res_node = return_wrapped_pointer(SlData::String(name));
+                    let res_node = Rc::new(RefCell::new(Node {
+                        data: SlData::DArray(name),
+                        children: Some(vec![]),
+                    }));
                     self.go_through(&res_node)?;
-                    node.borrow_mut().children.push(res_node);
+                    node.borrow_mut().children.as_mut().unwrap().push(res_node);
                     blocks -= 1;
                 }
                 return Ok(());
@@ -298,7 +378,7 @@ impl BWX {
             }
         };
 
-        node.borrow_mut().children.push(return_wrapped_pointer(data));
+        node.borrow_mut().children.as_mut().unwrap().push(return_wrapped_pointer(data));
         Ok(())
     }
 }

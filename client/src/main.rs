@@ -1,5 +1,5 @@
 use bwx::BWX;
-use tracing::Level;
+use tracing::{debug, Level};
 use tracing_subscriber::filter::EnvFilter;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

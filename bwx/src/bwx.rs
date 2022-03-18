@@ -1,28 +1,9 @@
-use std::cell::{Ref, RefCell};
 use std::io::{Cursor, Read};
-use std::rc::Rc;
 use byteorder::{LittleEndian, ReadBytesExt};
 use tracing::{debug, error, info, trace, warn};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-/*
 // u8, i8, u16, i16, u32, i32, u64, i64, u128, i128, usize, isize, f32, f64
-#[derive(Debug, Clone)]
-pub enum SlData {
-    UChar(u8),
-    Char(i8),
-    Word(i16),
-    Int(i32),
-    Float(f32),
-    String(String),
-    Data(Vec<u8>),
-    Array,
-    DArray(String),
-    None,
-}
-
- */
-
 #[derive(Debug, Clone, Serialize)]
 pub enum SlType {
     UChar(u8),
@@ -37,100 +18,55 @@ pub enum SlType {
     None,
 }
 
-#[derive(Debug, Clone)]
-pub struct Node {
-    pub data: SlType,
-    pub children: Option<Vec<Rc<RefCell<Node>>>>,
-}
-
 #[derive(Debug)]
 /// A BWX class to handle ShiningLore BNX / PNX file
 pub struct BWX {
     content: Cursor<Vec<u8>>,
-    pub node: Node,
-    pub text: String,
     pub data: SlType,
 }
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-impl Default for Node {
-    fn default() -> Self {
-        Node {
-            data: SlType::None,
-            children: None,
-        }
-    }
-}
-
-impl Node {
-    /// Create a new Node, with SlData
-    ///
-    /// # Arguments
-    ///
-    /// * data - SlData
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use bwx::{Node, SlType};
-    /// let node = Node::new(SlType::None);
-    ///```
-    pub fn new(data: SlType) -> Self {
-        Node {
-            data,
-            ..Default::default()
+impl SlType {
+    pub fn string(&self) -> Option<String>
+    {
+        match self {
+            SlType::String(v) => { Some(v.into()) }
+            SlType::DArray(v, _) => { Some(v.into()) }
+            _ => None,
         }
     }
 
-    /// Find a block with the given name
-    ///
-    /// # Arguments
-    ///
-    /// * name - The name of the block
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use bwx::{Node, SlType};
-    /// let node = Node::new(SlType::String("root".into()));
-    /// let res_node = node.find_block("root");
-    /// ```
-    #[tracing::instrument(skip(self, name))]
-    pub fn find_block(&self, name: &str) -> Option<Node> {
-        let children =
-            if let Some(c) = &self.children { c } else {
-                return None;
-            };
-
-        for child in children.iter() {
-            match &child.borrow().data {
-                SlType::String(string) => {
-                    if string == name {
-                        info!("Found String: [{}]", string);
-                        return if child.borrow().children.is_some() {
-                            Some(child.borrow().clone())
-                        } else {
-                            Some(self.clone())
-                        };
-                    }
-                }
-                SlType::Array(_) => {}
-                SlType::DArray(string, _) => {
-                    if string == name {
-                        info!("Found D-Array: [{}]", string);
-                        return Some(child.borrow().clone());
-                    }
-                }
-                _ => {
-                    continue;
-                }
-            }
-            let res_node = child.borrow().find_block(name);
-            if res_node.is_some() { return res_node; }
+    pub fn i32(&self) -> Option<i32> {
+        if let SlType::Int(v) = self {
+            Some(*v)
+        } else {
+            None
         }
+    }
 
-        None
+    pub fn d_array(&self) -> Option<&Vec<SlType>> {
+        if let SlType::DArray(_, v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    pub fn array(&self) -> Option<&Vec<SlType>> {
+        if let SlType::Array(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    pub fn data(&self) -> Option<Vec<u8>> {
+        if let SlType::Data(v) = self {
+            Some(v.clone())
+        } else {
+            None
+        }
     }
 }
 
@@ -138,8 +74,8 @@ impl Default for BWX {
     fn default() -> Self {
         BWX {
             content: Default::default(),
-            node: Node { ..Default::default() },
-            text: "".into(),
+            //node: Node { ..Default::default() },
+            //text: "".into(),
             data: SlType::None,
         }
     }
@@ -161,10 +97,6 @@ impl BWX {
     /// ```
     pub fn new() -> Self {
         BWX {
-            node: Node {
-                data: SlType::String("root".into()),
-                children: Some(vec![]),
-            },
             ..Default::default()
         }
     }
@@ -178,161 +110,38 @@ impl BWX {
 
         self.check_bwx_header()?;
         self.content.set_position(4);
+        self.data = self.go_through(true)?;
 
-        /*
-        let (size, mut blocks) = self.read_block_size_number()?;
-        trace!(size, blocks);
-
-         */
-
-        // Test code starts from here
-        let aaa = self.go_through_new(true)?;
-        //debug!("{:#?}", aaa);
-
-        // Json5 serialize
-        // use json5;
-        // let bbb=json5::to_string(&aaa);
-        //
-        // if bbb.is_ok() {
-        //     debug!("{:#?}", bbb);
-        // }
-
-        match aaa {
-            SlType::Array(v) => {
-                for a in v.iter() {
-                    debug!("{:#?}", a);
-                    break;
+        for node in self.data.array().unwrap() {
+            let name = node.string().ok_or("No name for node")?;
+            match name.as_str() {
+                // TODO: Check PNX version
+                "HEAD" => {
+                    let s = node.d_array().ok_or("Child node is not d-array")?;
+                    debug!("{:?}", s);
                 }
-            }
-
-            _ => {}
-        };
-
-        return Ok(());
-        // Test code ends here
-
-        /*
-        while blocks > 0 {
-            let name = self.read_string()?;
-            //self.text += &format!("{}: {{\n", name);
-            trace!("Main block name: {}", name);
-            let node = Rc::new(RefCell::new(Node {
-                data: SlType::String(name),
-                children: Some(vec![]),
-            }));
-            self.go_through(&node)?;
-            //self.text += &format!("}},\n");
-            self.node.children.as_mut().unwrap().push(node);
-            blocks -= 1;
-        }
-
-        debug!("{}", self.text);
-        let a = self.node.children.clone().unwrap();
-        self.data = SlType::Array(vec![]);
-        //self.generate_tree(a, &mut self.data)?;
-        //self.generate_tree(self.node.children.borrow().clone().unwrap(), &SlType::None)?;
-        // Parse data and get mesh data
-        //self.parse_mesh()?;
-
-
-         */
-        Ok(())
-    }
-
-    fn generate_tree(&self, node: Vec<Rc<RefCell<Node>>>, data: &mut SlType) -> Result<()> {
-        for n in node.iter() {
-            let vv = n.borrow().data.clone();
-            debug!("{:#?}", vv);
-            match data {
-                SlType::Array(v) => { v.push(vv); }
+                // TODO: Parse materials
+                "MTRL" => {
+                    debug!("MTRL!");
+                }
+                // TODO: Parse OBJ2 mesh data from SL1
+                "OBJ2" => {
+                    debug!("OBJ2!");
+                }
+                "OBJECT" => {}
+                "CAM" => {}
+                "LIGHT" => {}
+                "SOUND" => {}
+                "BONE" => {}
+                "CHART" => {}
+                // TODO: Parse meshes from SL2
+                "DXOBJ" | "SPOB" => {
+                    debug!("MESH! - {}", name);
+                }
                 _ => {}
             }
         }
-        Ok(())
-    }
 
-    ///
-    fn parse_mesh(&self) -> Result<()> {
-        /*
-        let name = match &node.data {
-            SlData::String(s) => s,
-            _ => "",
-        };
-        debug!("{:#?}",name);
-        debug!("{:#?}",node.children.len());
-
-         */
-        //let node = self.node.find_block("0");
-        //let node = self.node.find_block("SLBWX");
-        //let node = self.node.find_block("head block");
-        //let node = self.node.find_block("SUBMTRL");
-        //debug!("{:#?}", node.data);
-        // let slbwx = node.find_block("SLBWX");
-        let spob = self.node.find_block("SPOB");
-        let dxobj = self.node.find_block("DXOBJ");
-        //let node = self.node.find_block("VISB");
-        //let d = dxobj.unwrap();
-        //let dxobj_ron = ron::to_string(&d).unwrap();
-        debug!("{:#?}", dxobj);
-
-        use json5;
-        //use serde_derive::Deserialize;
-
-        let config = "
-             {
-                // A traditional message.
-                message: 'hello world',
-
-                // A number for some reason.
-                n: 42,
-            }
-        ";
-
-        #[derive(Debug, Deserialize)]
-        struct Config {
-            message: String,
-            n: i32,
-        }
-
-        let x: Config = json5::from_str(config).unwrap();
-
-        //let x = ron::from_str("(boolean: true, float: 1.23)");
-        debug!("{:#?}", x);
-        //debug!("Ron: {:#?}", dxobj_ron);
-        //debug!("{:#?}", spob);
-
-        /*
-        let mut data = Vec::new();
-
-        for child in self.node.children.iter() {
-            debug!("{:?}", child.borrow_mut().data);
-            if let SlData::String(s) = &child.borrow_mut().data {
-                match s.as_str() {
-                    "DXOBJ" | "SPOB" => {
-                        debug!("{:?}", s);
-                        data.push(child.clone());
-                    }
-                    _ => {}
-                }
-            }
-        }
-
-        // working ok
-        for d in data.iter() {
-            debug!("len: {}", d.borrow_mut().children.len());
-            /*
-            debug!("{:#?}", d.borrow_mut().data);
-            debug!("len: {}", d.borrow_mut().children.len());
-            debug!("{:#?}", d.borrow_mut().children);
-             */
-            //let e = d.borrow_mut().children.get(0).unwrap().clone();
-            //debug!("len: {}", e.borrow_mut().children.len());
-        }
-
-        //debug!("{:#?}", data);
-
-
-         */
         Ok(())
     }
 
@@ -387,118 +196,8 @@ impl BWX {
     }
 
     /// Go through the whole BWX file
-    //#[tracing::instrument(skip(self))]
-    #[tracing::instrument(skip(self, node))]
-    fn go_through(&mut self, node: &Rc<RefCell<Node>>) -> Result<()> {
-        let signature = self.content.read_u8()?;
-
-        let data = match signature {
-            0x41 => { // Signature A
-                let (size, mut blocks) = self.read_block_size_number()?;
-                trace!("[Signature A] - Size: {}, Blocks: {}", size, blocks);
-                let res_node = Rc::new(RefCell::new(Node {
-                    data: SlType::Array(vec![]),
-                    children: Some(vec![]),
-                }));
-                while blocks > 0 {
-                    self.go_through(&res_node)?;
-                    blocks -= 1;
-                }
-                //let a = res_node.clone();
-                //ron::to_string(&a.borrow_mut().children);
-                //debug!("{:#?}", a.borrow_mut().children);
-                //panic!("DEBUG");
-
-                node.borrow_mut().children.as_mut().unwrap().push(res_node);
-                return Ok(());
-            }
-            0x42 => { // Signature B
-                let size = self.read_i32_packed()?;
-                trace!("[Signature B] - Size: {}", size);
-                let mut buffer: Vec<u8> = Vec::new();
-                buffer.resize(size as usize, 0);
-                self.content.read_exact(&mut buffer)?;
-                SlType::Data(buffer)
-            }
-            0x43 => { // Signature C
-                let value = -self.content.read_i8()?;
-                trace!("[Signature C] - Value: {}", value);
-                SlType::Char(value)
-            }
-            0x44 => { // Signature D
-                let (size, mut blocks) = self.read_block_size_number()?;
-                trace!("[Signature D] - Size: {}, Blocks: {}", size, blocks);
-                while blocks > 0 {
-                    let name = self.read_string()?;
-                    trace!("[Signature D] - Name: {}", name);
-                    let res_node = Rc::new(RefCell::new(Node {
-                        data: SlType::DArray(name, vec![]),
-                        children: Some(vec![]),
-                    }));
-                    self.go_through(&res_node)?;
-                    node.borrow_mut().children.as_mut().unwrap().push(res_node);
-                    blocks -= 1;
-                }
-                return Ok(());
-            }
-            0x46 => { // Signature F
-                let value = self.content.read_f32::<LittleEndian>()?;
-                trace!("[Signature F] - Value: {:.3}", value);
-                SlType::Float(value)
-            }
-            0x48 => { // Signature H
-                let value = -self.content.read_i16::<LittleEndian>()?;
-                trace!("[Signature H] - Value: {}", value);
-                SlType::Word(value)
-            }
-            0x49 => { // Signature I
-                let value = self.content.read_i32::<LittleEndian>()?;
-                trace!("[Signature I] - Value: {}", value);
-                SlType::Int(value)
-            }
-            0x53 => { // Signature S
-                let value = self.read_string()?;
-                trace!("[Signature S] - Value: {}", value);
-                SlType::String(value)
-            }
-            0x57 => { // Signature W
-                let value = self.content.read_i16::<LittleEndian>()?;
-                trace!("[Signature W] - Value: {}", value);
-                SlType::Word(value)
-            }
-            0x59 => { // Signature Y
-                let value = self.content.read_u8()?;
-                trace!("[Signature Y] - Value: {}", value);
-                SlType::UChar(value)
-            }
-            s if s < 0x20 => {
-                // Independent data
-                trace!("[Independent Data] - Value: {}", s);
-                SlType::UChar(s)
-            }
-            s  if s >= 0x80 => {
-                // Independent data block
-                let size = s as usize & 0x7f;
-                trace!("[Independent Data Block] - Size: {}", size);
-                let mut buffer: Vec<u8> = Vec::new();
-                buffer.resize(size, 0);
-                self.content.read_exact(&mut buffer)?;
-                SlType::Data(buffer)
-            }
-            _ => {
-                error!("Unhandled signature = 0x{:02x}, position: {}", signature, self.content.position());
-                //debug!("{:#?}", self.node);
-                panic!("Unhandled type {}", signature);
-            }
-        };
-
-        node.borrow_mut().children.as_mut().unwrap().push(return_wrapped_pointer(data));
-        Ok(())
-    }
-
-    /// Go through the whole BWX file
     #[tracing::instrument(skip(self, root))]
-    fn go_through_new(&mut self, root: bool) -> Result<SlType> {
+    fn go_through(&mut self, root: bool) -> Result<SlType> {
         // Parse root as Signature D
         let signature = if root { 0x44 } else { self.content.read_u8()? };
 
@@ -506,14 +205,13 @@ impl BWX {
             0x41 => { // Signature A
                 let (size, mut blocks) = self.read_block_size_number()?;
                 trace!("[Signature A] - Size: {}, Blocks: {}", size, blocks);
-                let mut v = vec![];
+                let mut node = vec![];
                 while blocks > 0 {
-                    //self.go_through(&res_node)?;
-                    let b = (self.go_through_new(false)?);
-                    v.push(b);
+                    let child = self.go_through(false)?;
+                    node.push(child);
                     blocks -= 1;
                 }
-                SlType::Array(v)
+                SlType::Array(node)
             }
             0x42 => { // Signature B
                 let size = self.read_i32_packed()?;
@@ -531,22 +229,22 @@ impl BWX {
             0x44 => { // Signature D
                 let (size, mut blocks) = self.read_block_size_number()?;
                 trace!("[Signature D] - Size: {}, Blocks: {}", size, blocks);
-                let mut v = vec![];
+                let mut node = vec![];
                 while blocks > 0 {
                     let name = self.read_string()?;
                     trace!("[Signature D] - Name: {}", name);
-                    let b = (self.go_through_new(false)?);
-                    match b {
-                        SlType::Array(vvv) => {
-                            v.push(SlType::DArray(name, vvv));
+                    let child = self.go_through(false)?;
+                    match child {
+                        SlType::Array(children) => {
+                            node.push(SlType::DArray(name, children));
                         }
                         _ => {
-                            v.push(SlType::DArray(name, vec![b]));
+                            node.push(SlType::DArray(name, vec![child]));
                         }
                     }
                     blocks -= 1;
                 }
-                SlType::Array(v)
+                SlType::Array(node)
             }
             0x46 => { // Signature F
                 let value = self.content.read_f32::<LittleEndian>()?;
@@ -600,11 +298,6 @@ impl BWX {
         };
         Ok(data)
     }
-}
-
-/// Prepare return data
-fn return_wrapped_pointer(data: SlType) -> Rc<RefCell<Node>> {
-    Rc::new(RefCell::new(Node::new(data)))
 }
 
 #[cfg(test)]

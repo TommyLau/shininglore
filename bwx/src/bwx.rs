@@ -27,12 +27,11 @@ impl Default for SlType {
 }
 
 impl SlType {
-    pub fn string(&self) -> Option<String>
-    {
-        match self {
-            SlType::String(v) => { Some(v.into()) }
-            SlType::DArray(v, _) => { Some(v.into()) }
-            _ => None,
+    pub fn word(&self) -> Option<i16> {
+        if let SlType::Word(v) = self {
+            Some(*v)
+        } else {
+            None
         }
     }
 
@@ -44,27 +43,19 @@ impl SlType {
         }
     }
 
-    pub fn word(&self) -> Option<i16> {
-        if let SlType::Word(v) = self {
-            Some(*v)
+    pub fn float(&self) -> Result<f32> {
+        if let SlType::Float(v) = self {
+            Ok(*v)
         } else {
-            None
+            Err("Cannot get float from SlType".into())
         }
     }
 
-    pub fn d_array(&self) -> Option<&Vec<SlType>> {
-        if let SlType::DArray(_, v) = self {
-            Some(v)
-        } else {
-            None
-        }
-    }
-
-    pub fn array(&self) -> Option<&Vec<SlType>> {
-        if let SlType::Array(v) = self {
-            Some(v)
-        } else {
-            None
+    pub fn string(&self) -> Result<String>
+    {
+        match self {
+            SlType::String(v) | SlType::DArray(v, _) => { Ok(v.into()) }
+            _ => Err("Cannot get string from SlType".into())
         }
     }
 
@@ -75,6 +66,42 @@ impl SlType {
             None
         }
     }
+
+    pub fn array(&self) -> Result<&Vec<SlType>> {
+        if let SlType::Array(v) = self {
+            Ok(v)
+        } else {
+            Err("Cannot get array from SlType".into())
+        }
+    }
+
+    pub fn d_array(&self) -> Result<&Vec<SlType>> {
+        if let SlType::DArray(_, v) = self {
+            Ok(v)
+        } else {
+            Err("Cannot get d-array from SlType".into())
+        }
+    }
+}
+
+// Block 'HEAD'
+pub struct Head {
+    pub name: String,
+    pub description: String,
+    pub magic: i32,
+    pub version: i16,
+    pub other: String,
+}
+
+pub struct SubMaterial {
+    pub highlight: f32,
+    pub filename: String,
+    pub used: bool,
+}
+
+// Block 'MTRL'
+pub struct Material {
+    pub sub_materials: Vec<SubMaterial>,
 }
 
 #[derive(Debug, Default)]
@@ -118,18 +145,23 @@ impl BWX {
         self.data = self.go_through(true)?;
 
         for node in self.data.array().unwrap() {
-            let name = node.string().ok_or("No name for node")?;
+            let name = node.string()?;
+            let children = node.d_array()?;
             match name.as_str() {
                 "HEAD" => {
-                    let head = node.d_array().ok_or("Child node is not d-array")?;
-                    if head.len() >= 4 {
-                        if head[0].string().unwrap().as_str() != "HEAD" {
+                    if children.len() >= 4 {
+                        // 0 - HEAD
+                        // 1 - head block
+                        // 2 - PNX\0
+                        // 3 - 0x0500: SL1, 0x0602: SL2
+                        // 4 - "BWX PNX KAK"
+                        if children[0].string().unwrap().as_str() != "HEAD" {
                             error!("Incorrect HEAD block");
                         }
-                        if head[2].int().unwrap() != 0x504e5800 {
+                        if children[2].int().unwrap() != 0x504e5800 {
                             error!("Header magic != PNX");
                         }
-                        self.version = head[3].word().unwrap();
+                        self.version = children[3].word().unwrap();
                         match self.version {
                             0x500 => trace!("ShiningLore V1 PNX"),
                             0x602 => trace!("ShiningLore V2 PNX"),
@@ -139,9 +171,38 @@ impl BWX {
                         warn!("HEAD block length < 4, no PNX version available!");
                     }
                 }
-                // TODO: Parse materials
+                // TODO: Save material information in struct
                 "MTRL" => {
-                    debug!("MTRL!");
+                    for materials in children {
+                        let material = materials.array()?;
+                        // material[0] - Material Group "MTRL"
+                        // material[1] - Material Group Name
+                        // material[2..n] - Material Array for Sub Materials
+                        trace!("Material: {}", material[1].string()?);
+                        for (i, sub_materials) in material.iter().enumerate().skip(2) {
+                            let sub_material = sub_materials.array()?;
+                            let highlight = sub_material[5].float()?;
+                            // 0 - "SUBMTRL"
+                            // 1 - Diffuse ???
+                            // 2 - Ambient ???
+                            // 3 - Specular ???
+                            // 4 - Some float ???
+                            // 5 - High light
+                            // 6 - Most 0x01
+                            // 7 - ???
+                            // 8 - Texture Array
+                            let filename = if sub_material.len() > 8 {
+                                // Some materials have no texture, such as glass
+                                let texture = sub_material[8].array()?;
+                                // 0 - TEX
+                                // 1 - Most 0x00, timer?
+                                // 2 - Filename
+                                let filename = texture[2].string()?;
+                                filename.split('\\').last().unwrap().into()
+                            } else { "".to_string() };
+                            trace!("\tSub Material {}: Highlight: {}, File: {}", i - 2, highlight, filename);
+                        }
+                    }
                 }
                 // TODO: Parse OBJ2 mesh data from SL1
                 "OBJ2" => {

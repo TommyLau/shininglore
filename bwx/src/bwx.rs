@@ -3,6 +3,8 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use tracing::{debug, error, info, trace, warn};
 use serde::Serialize;
 
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+
 // u8, i8, u16, i16, u32, i32, u64, i64, u128, i128, usize, isize, f32, f64
 #[derive(Debug, Clone, Serialize)]
 pub enum SlType {
@@ -18,14 +20,11 @@ pub enum SlType {
     None,
 }
 
-#[derive(Debug)]
-/// A BWX class to handle ShiningLore BNX / PNX file
-pub struct BWX {
-    content: Cursor<Vec<u8>>,
-    pub data: SlType,
+impl Default for SlType {
+    fn default() -> Self {
+        SlType::None
+    }
 }
-
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 impl SlType {
     pub fn string(&self) -> Option<String>
@@ -37,8 +36,16 @@ impl SlType {
         }
     }
 
-    pub fn i32(&self) -> Option<i32> {
+    pub fn int(&self) -> Option<i32> {
         if let SlType::Int(v) = self {
+            Some(*v)
+        } else {
+            None
+        }
+    }
+
+    pub fn word(&self) -> Option<i16> {
+        if let SlType::Word(v) = self {
             Some(*v)
         } else {
             None
@@ -70,15 +77,12 @@ impl SlType {
     }
 }
 
-impl Default for BWX {
-    fn default() -> Self {
-        BWX {
-            content: Default::default(),
-            //node: Node { ..Default::default() },
-            //text: "".into(),
-            data: SlType::None,
-        }
-    }
+#[derive(Debug, Default)]
+/// A BWX class to handle ShiningLore BNX / PNX file
+pub struct BWX {
+    content: Cursor<Vec<u8>>,
+    pub data: SlType,
+    version: i16,
 }
 
 impl BWX {
@@ -101,6 +105,7 @@ impl BWX {
         }
     }
 
+    /// Load BWX file from file
     #[tracing::instrument(skip(self, filename))]
     pub fn load_from_file(&mut self, filename: &str) -> Result<()> {
         info!(filename);
@@ -115,10 +120,24 @@ impl BWX {
         for node in self.data.array().unwrap() {
             let name = node.string().ok_or("No name for node")?;
             match name.as_str() {
-                // TODO: Check PNX version
                 "HEAD" => {
-                    let s = node.d_array().ok_or("Child node is not d-array")?;
-                    debug!("{:?}", s);
+                    let head = node.d_array().ok_or("Child node is not d-array")?;
+                    if head.len() >= 4 {
+                        if head[0].string().unwrap().as_str() != "HEAD" {
+                            error!("Incorrect HEAD block");
+                        }
+                        if head[2].int().unwrap() != 0x504e5800 {
+                            error!("Header magic != PNX");
+                        }
+                        self.version = head[3].word().unwrap();
+                        match self.version {
+                            0x500 => trace!("ShiningLore V1 PNX"),
+                            0x602 => trace!("ShiningLore V2 PNX"),
+                            _ => error!("Unknown ShiningLore PNX version!!"),
+                        }
+                    } else {
+                        warn!("HEAD block length < 4, no PNX version available!");
+                    }
                 }
                 // TODO: Parse materials
                 "MTRL" => {

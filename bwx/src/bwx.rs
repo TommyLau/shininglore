@@ -27,19 +27,13 @@ impl Default for SlType {
 }
 
 impl SlType {
-    pub fn word(&self) -> Option<i16> {
-        if let SlType::Word(v) = self {
-            Some(*v)
-        } else {
-            None
-        }
-    }
-
-    pub fn int(&self) -> Option<i32> {
-        if let SlType::Int(v) = self {
-            Some(*v)
-        } else {
-            None
+    pub fn int(&self) -> Result<i32> {
+        match self {
+            SlType::UChar(v) => Ok(*v as i32),
+            SlType::Char(v) => Ok(*v as i32),
+            SlType::Word(v) => Ok(*v as i32),
+            SlType::Int(v) => Ok(*v),
+            _ => Err("Cannot get integer from SlType".into()),
         }
     }
 
@@ -59,11 +53,11 @@ impl SlType {
         }
     }
 
-    pub fn data(&self) -> Option<Vec<u8>> {
+    pub fn data(&self) -> Result<&Vec<u8>> {
         if let SlType::Data(v) = self {
-            Some(v.clone())
+            Ok(v)
         } else {
-            None
+            Err("Cannot get data from SlType".into())
         }
     }
 
@@ -109,7 +103,7 @@ pub struct Material {
 pub struct BWX {
     content: Cursor<Vec<u8>>,
     pub data: SlType,
-    version: i16,
+    version: i32,
 }
 
 impl BWX {
@@ -148,6 +142,9 @@ impl BWX {
             let name = node.string()?;
             let children = node.d_array()?;
             match name.as_str() {
+                "0" => {
+                    // Default block "0" with string "SLBWX"
+                }
                 "HEAD" => {
                     if children.len() >= 4 {
                         // 0 - HEAD
@@ -161,7 +158,7 @@ impl BWX {
                         if children[2].int().unwrap() != 0x504e5800 {
                             error!("Header magic != PNX");
                         }
-                        self.version = children[3].word().unwrap();
+                        self.version = children[3].int()?;
                         match self.version {
                             0x500 => trace!("ShiningLore V1 PNX"),
                             0x602 => trace!("ShiningLore V2 PNX"),
@@ -171,8 +168,8 @@ impl BWX {
                         warn!("HEAD block length < 4, no PNX version available!");
                     }
                 }
-                // TODO: Save material information in struct
                 "MTRL" => {
+                    // TODO: Save material information in struct
                     for materials in children {
                         let material = materials.array()?;
                         // material[0] - Material Group "MTRL"
@@ -206,7 +203,7 @@ impl BWX {
                 }
                 // TODO: Parse OBJ2 mesh data from SL1
                 "OBJ2" => {
-                    debug!("OBJ2!");
+                    warn!("OBJ2 parsing needs to be implemented! {}@{}", file!(), line!());
                 }
                 "OBJECT" => {}
                 "CAM" => {}
@@ -214,11 +211,82 @@ impl BWX {
                 "SOUND" => {}
                 "BONE" => {}
                 "CHART" => {}
-                // TODO: Parse meshes from SL2
                 "DXOBJ" | "SPOB" => {
-                    debug!("MESH! - {}", name);
+                    // TODO: Store parsed data into struct
+                    if children.is_empty() {
+                        warn!("No data block found in {}", name);
+                        continue;
+                    }
+
+                    for objects in children {
+                        let object = objects.array()?;
+                        // 0 - "DXOBJ" / "SPOB"
+                        // 1 - Mesh Name
+                        // 2 - Unknown integer
+                        // 3 - Texture Group Index : -1 means no texture
+                        // 4, 5 - Unknown
+                        // 6 - 0x4D534858h("MSHX") or 0x4D4E4858h("MNHX")
+                        // 7 - Array("DXMESH")
+                        // 8 - Array("MATRIX")
+                        let name = object[1].string()?;
+                        let texture_index = object[3].int()?;
+                        trace!("Object: {}, Index: {}", name, texture_index);
+                        // Meshes
+                        let meshes = object[7].array()?;
+                        for mesh_array in meshes {
+                            let mesh = mesh_array.array()?;
+                            // 0 - "DXMESH"
+                            // 1 - Texture Index in Texture Group
+                            // 2 - Array("DXMESHF")
+                            // 3 - Index Buffer Size
+                            // 4 - Index Buffer
+                            let sub_texture_index = mesh[1].int()?;
+                            let index_count = mesh[3].int()?;
+                            let index_buffer = mesh[4].data()?;
+                            if index_buffer.len() != index_count as usize * 2 {
+                                error!("Index block size incorrect!");
+                            }
+                            trace!("\tMesh: [Texture Index: {}, Index Count: {}", sub_texture_index, index_count);
+                            let blocks = mesh[2].array()?;
+                            for vertices in blocks {
+                                let vertex = vertices.array()?;
+                                // 0 - "DXMESHF"
+                                // 1 - VB Timer
+                                // 2 - Vertex Type??? - 0x15
+                                // 3 - Vertex Count
+                                // 4 - Vertex Size - 0x20
+                                // 5 - Vertex Buffer
+                                let timer = vertex[1].int()?;
+                                let vertex_type = vertex[2].int()?;
+                                let vertex_count = vertex[3].int()?;
+                                let vertex_size = vertex[4].int()?;
+                                let vertex_buffer = vertex[5].data()?;
+                                trace!("\t\tVertex: [Timer: {}, Type: {}, Count: {}, Size: {}, BufLen: {}",
+                                timer, vertex_type, vertex_count, vertex_size, vertex_buffer.len());
+                            }
+                        }
+                        // Matrices
+                        let matrices = object[8].array()?;
+                        for matrix_array in matrices {
+                            let matrix = matrix_array.array()?;
+                            // 0 - "MATRIX"
+                            // 1..n - Matrix
+                            // TODO: Parse matrix later
+                            trace!("\tMatrix: [Length: {}]", matrix.len() -1);
+                        }
+                        // SFX Blocks?
+                        if object.len() > 9 {
+                            // TODO: Parse SFX
+                            let sfx = object[9].array()?;
+                            if !sfx.is_empty() {
+                                warn!("\tSFX: Unhandled SFX blocks? {}@{}", file!(), line!());
+                            }
+                        }
+                    }
                 }
-                _ => {}
+                _ => {
+                    error!("Unknown block: {}", name);
+                }
             }
         }
 

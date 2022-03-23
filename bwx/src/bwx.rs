@@ -1,5 +1,6 @@
 use std::io::{Cursor, Read};
-use byteorder::{LittleEndian, ReadBytesExt};
+use std::path::Path;
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use tracing::{debug, error, info, trace, warn};
 use serde::Serialize;
 
@@ -128,8 +129,9 @@ impl BWX {
 
     /// Load BWX file from file
     #[tracing::instrument(skip(self, filename))]
-    pub fn load_from_file(&mut self, filename: &str) -> Result<()> {
-        info!(filename);
+    pub fn load_from_file(&mut self, filename: impl AsRef<Path>) -> Result<()> {
+        //pub fn load_from_file(&mut self, filename: &str) -> Result<()> {
+        info!("{}", filename.as_ref().display());
 
         let data = std::fs::read(filename)?;
         self.content = Cursor::new(data);
@@ -137,6 +139,13 @@ impl BWX {
         self.check_bwx_header()?;
         self.content.set_position(4);
         self.data = self.go_through(true)?;
+
+        // Test obj code
+        use std::io::Write;
+        let mut output = vec![];
+        writeln!(output, "# ShiningLore Online Development Team (SLODT)")?;
+        writeln!(output, "# Tommy Lau <tommy.lhg@gmail.com>")?;
+        // Test
 
         for node in self.data.array().unwrap() {
             let name = node.string()?;
@@ -218,8 +227,12 @@ impl BWX {
                         continue;
                     }
 
+                    let mut idx: u32 = 1;
+
                     for objects in children {
-                        let object = objects.array()?;
+                        let object = if objects.array().is_ok() {
+                            objects.array().unwrap()
+                        } else { continue; };
                         // 0 - "DXOBJ" / "SPOB"
                         // 1 - Mesh Name
                         // 2 - Unknown integer
@@ -230,6 +243,7 @@ impl BWX {
                         // 8 - Array("MATRIX")
                         let name = object[1].string()?;
                         let texture_index = object[3].int()?;
+                        writeln!(output, "o {}", name)?;
                         trace!("Object: {}, Index: {}", name, texture_index);
                         // Meshes
                         let meshes = object[7].array()?;
@@ -246,7 +260,8 @@ impl BWX {
                             if index_buffer.len() != index_count as usize * 2 {
                                 error!("Index block size incorrect!");
                             }
-                            trace!("\tMesh: [Texture Index: {}, Index Count: {}", sub_texture_index, index_count);
+                            trace!("\tMesh: [Texture Index: {}, Index Count: {}, Size: {}",
+                                sub_texture_index, index_count, index_buffer.len());
                             let blocks = mesh[2].array()?;
                             for vertices in blocks {
                                 let vertex = vertices.array()?;
@@ -263,6 +278,73 @@ impl BWX {
                                 let vertex_buffer = vertex[5].data()?;
                                 trace!("\t\tVertex: [Timer: {}, Type: {}, Count: {}, Size: {}, BufLen: {}",
                                 timer, vertex_type, vertex_count, vertex_size, vertex_buffer.len());
+
+                                // Test
+                                let mut v_buffer = Cursor::new(vertex_buffer);
+                                let mut v = Vec::new();
+                                let mut vn = Vec::new();
+                                let mut vt = Vec::new();
+                                for _ in 0..vertex_count {
+                                    let mut x = v_buffer.read_f32::<LittleEndian>()?;
+                                    let y = v_buffer.read_f32::<LittleEndian>()?;
+                                    let z = v_buffer.read_f32::<LittleEndian>()?;
+                                    if name.chars().last().unwrap() == 'L' {
+                                        if x < 0.0 {
+                                            x = -x;
+                                        }
+                                    }
+                                    if name.chars().last().unwrap() == 'R' {
+                                        if x > 0.0 {
+                                            x = -x;
+                                        }
+                                    }
+                                    v.push([x, y, z]);
+                                    /*
+                                    v.push([
+                                        v_buffer.read_f32::<LittleEndian>()?,
+                                        v_buffer.read_f32::<LittleEndian>()?,
+                                        v_buffer.read_f32::<LittleEndian>()?,
+                                    ]);
+
+                                     */
+                                    vn.push([
+                                        v_buffer.read_f32::<LittleEndian>()?,
+                                        v_buffer.read_f32::<LittleEndian>()?,
+                                        v_buffer.read_f32::<LittleEndian>()?,
+                                    ]);
+                                    vt.push([
+                                        v_buffer.read_f32::<LittleEndian>()?,
+                                        v_buffer.read_f32::<LittleEndian>()?,
+                                    ]);
+                                }
+                                for vv in v {
+                                    writeln!(output, "v {} {} {}", vv[0], vv[1], vv[2])?;
+                                }
+                                /*
+                                for vv in vn {
+                                    writeln!(output, "vn {} {} {}", vv[0], vv[1], vv[2])?;
+                                }
+                                for vv in vt {
+                                    writeln!(output, "vt {} {}", vv[0], vv[1])?;
+                                }
+                                 */
+                                let mut v_buffer = Cursor::new(index_buffer);
+                                //debug!("{:#?}", index_buffer);
+                                // Obj index starts from 1, so have to plus one to every index
+                                for i in 0..index_count / 3 {
+                                    /*
+                                    let a = v_buffer.read_u16::<LittleEndian>()?;
+                                    let b = v_buffer.read_u16::<LittleEndian>()?;
+                                    let c = v_buffer.read_u16::<LittleEndian>()?;
+                                    */
+                                    let a = v_buffer.read_u16::<LittleEndian>()? as u32 + idx;
+                                    let b = v_buffer.read_u16::<LittleEndian>()? as u32 + idx;
+                                    let c = v_buffer.read_u16::<LittleEndian>()? as u32 + idx;
+                                    //writeln!(output, "f {}/{}/{}", a, b, c)?;
+                                    writeln!(output, "f {} {} {}", c, a, b)?;
+                                }
+                                idx += vertex_count as u32;
+                                // End test
                             }
                         }
                         // Matrices
@@ -290,6 +372,17 @@ impl BWX {
             }
         }
 
+        // Test obj code
+
+        std::fs::write("test.obj", output)?;
+
+        // End test obj code
+
+        Ok(())
+    }
+
+    /// Export OBJ file
+    pub fn export_obj(&self) -> Result<()> {
         Ok(())
     }
 

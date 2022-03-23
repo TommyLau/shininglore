@@ -227,12 +227,11 @@ impl BWX {
                         continue;
                     }
 
+                    // Index for OBJ output, vertex index starts from 1 in OBJ
                     let mut idx: u32 = 1;
 
                     for objects in children {
-                        let object = if objects.array().is_ok() {
-                            objects.array().unwrap()
-                        } else { continue; };
+                        let object = objects.array()?;
                         // 0 - "DXOBJ" / "SPOB"
                         // 1 - Mesh Name
                         // 2 - Unknown integer
@@ -329,8 +328,6 @@ impl BWX {
                                 }
                                  */
                                 let mut v_buffer = Cursor::new(index_buffer);
-                                //debug!("{:#?}", index_buffer);
-                                // Obj index starts from 1, so have to plus one to every index
                                 for i in 0..index_count / 3 {
                                     /*
                                     let a = v_buffer.read_u16::<LittleEndian>()?;
@@ -371,6 +368,8 @@ impl BWX {
                 }
             }
         }
+
+        //debug!("{:#?}", self.data);
 
         // Test obj code
 
@@ -422,7 +421,9 @@ impl BWX {
 
     /// Read string
     fn read_string(&mut self) -> Result<String> {
-        let length = self.content.read_u8()?;
+        //let length = self.content.read_u8()?;
+        // Bug fix, found length 0x80 in "OBO020_DEFAULT.PNX", use packed int
+        let length = self.read_i32_packed()?;
         let mut buffer = Vec::new();
         buffer.resize(length as usize, 0);
         self.content.read_exact(&mut buffer)?;

@@ -3,6 +3,7 @@ use std::path::Path;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use tracing::{debug, error, info, trace, warn};
 use serde::Serialize;
+use cgmath::*;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -58,6 +59,7 @@ impl SlType {
         if let SlType::Data(v) = self {
             Ok(v)
         } else {
+            debug!("Fuck: {:#?}", self);
             Err("Cannot get data from SlType".into())
         }
     }
@@ -244,6 +246,33 @@ impl BWX {
                         let texture_index = object[3].int()?;
                         writeln!(output, "o {}", name)?;
                         trace!("Object: {}, Index: {}", name, texture_index);
+                        //------------------------------
+                        // Get only the first matrix
+                        let matrix = {
+                            let matrix = object[8].array()?[0].array()?[1].data()?;
+                            let mut buffer = Cursor::new(matrix);
+                            let _timeline = buffer.read_u32::<LittleEndian>()?;
+                            Matrix4::new(
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                            )
+                        };
+                        //debug!("{:#?}", matrix);
+                        // ========================================
                         // Meshes
                         let meshes = object[7].array()?;
                         for mesh_array in meshes {
@@ -284,9 +313,11 @@ impl BWX {
                                 let mut vn = Vec::new();
                                 let mut vt = Vec::new();
                                 for _ in 0..vertex_count {
-                                    let mut x = v_buffer.read_f32::<LittleEndian>()?;
+                                    let x = v_buffer.read_f32::<LittleEndian>()?;
                                     let y = v_buffer.read_f32::<LittleEndian>()?;
                                     let z = v_buffer.read_f32::<LittleEndian>()?;
+                                    // Disable the ugly hack and try to use Matrix calculation instead
+                                    /*
                                     if name.chars().last().unwrap() == 'L' {
                                         if x < 0.0 {
                                             x = -x;
@@ -297,6 +328,7 @@ impl BWX {
                                             x = -x;
                                         }
                                     }
+                                     */
                                     v.push([x, y, z]);
                                     /*
                                     v.push([
@@ -317,7 +349,14 @@ impl BWX {
                                     ]);
                                 }
                                 for vv in v {
-                                    writeln!(output, "v {} {} {}", vv[0], vv[1], vv[2])?;
+                                    //writeln!(output, "v {} {} {}", vv[0], vv[1], vv[2])?;
+                                    // Implement Matrix transformation
+                                    debug!("Before: [{}, {}, {}]", vv[0],vv[1],vv[2]);
+                                    let v = Vector4::new(vv[0], vv[1], vv[2], 1.0);
+                                    let t = matrix * v;
+                                    debug!("After: [{}, {}, {}, {}]", t.x,t.y,t.z,t.w);
+                                    writeln!(output, "v {} {} {}", t.x, t.y, t.z)?;
+                                    // End Matrix transformation
                                 }
                                 /*
                                 for vv in vn {
@@ -328,7 +367,7 @@ impl BWX {
                                 }
                                  */
                                 let mut v_buffer = Cursor::new(index_buffer);
-                                for i in 0..index_count / 3 {
+                                for _i in 0..index_count / 3 {
                                     /*
                                     let a = v_buffer.read_u16::<LittleEndian>()?;
                                     let b = v_buffer.read_u16::<LittleEndian>()?;
@@ -352,6 +391,62 @@ impl BWX {
                             // 1..n - Matrix
                             // TODO: Parse matrix later
                             trace!("\tMatrix: [Length: {}]", matrix.len() -1);
+                            for m in matrix.iter().skip(1) {
+                                let mm = m.data()?;
+                                // 0 - Timeline, based on 160, in u32
+                                // 1 ~ 16, 4x4 Matrix in f32, column-major order, for eg.
+                                // [0.9542446, -0.2165474, -0.103003055, 0.0]
+                                // [0.09967622, -0.026197463, 0.9785, 0.0]
+                                // [-0.21809866, -0.9594297, -0.0034697813, 0.0]
+                                // [3.17442, 16.080942, 53.538746, 1.0]
+                                // =>
+                                // |  0.9542446,    0.09967622,  -0.21809866,   3.17442   |
+                                // | -0.2165474,   -0.026197463, -0.9594297,    16.080942 |
+                                // | -0.103003055,  0.9785,      -0.0034697813, 53.538746 |
+                                // |  0.0,          0.0,          0.0,          1.0       |
+                                // 17 ~ 23, unknown data, for eg.
+                                // [1.0, 1.0, 1.0, -0.0013206453, 0.00029969783, 0.00014250366, 0.002762136]
+                                // Guessing: [1.0, 1.0, 1.0], scale factor ???
+                                // Left another Vec4(-0.0013206453, 0.00029969783, 0.00014250366, 0.002762136), hmm...
+                                let mut buffer = Cursor::new(mm);
+                                /*
+                                let mut f = Vec::new();
+                                for i in 1..17 {
+                                    //for i in 0..mm.len() / 4 {
+                                    // if i == 0 {
+                                    //     let a = buffer.read_u32::<littleendian>()?;
+                                    //     //debug!("{}", a);
+                                    // } else {
+                                    let a = buffer.read_f32::<LittleEndian>()?;
+                                    //debug!("{}", a);
+                                    f.push(a);
+                                    //}
+                                }
+
+                                 */
+                                let _timeline = buffer.read_u32::<LittleEndian>()?;
+                                let _mmm = Matrix4::new(
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                );
+                                //debug!("{:?}", mmm);
+                                // TODO: Update logic here, processing only one matrix right now
+                                break;
+                            }
                         }
                         // SFX Blocks?
                         if object.len() > 9 {

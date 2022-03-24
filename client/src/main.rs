@@ -19,11 +19,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let mut b = BWX::new();
-    //let _c = b.load_from_file("EXTERNAL_UI_DEFAULT.PNX")?;
+    let _c = b.load_from_file("EXTERNAL_UI_DEFAULT.PNX")?;
     //let c = b.load_from_file("MON045_DEADA.PNX");
-    let _c = b.load_from_file("MON039_DEFAULTA.PNX");
+    //let _c = b.load_from_file("MON039_DEFAULTA.PNX")?;
     //let _c = b.load_from_file("MON006_DEFAULTA.PNX");
-    //let _c = b.load_from_file("MON001_01_DEFAULTA.PNX");
+    //let _c = b.load_from_file("MON001_01_DEFAULTA.PNX")?;
     //let _c = b.load_from_file("OBO020_DEFAULT.PNX")?;
 
 

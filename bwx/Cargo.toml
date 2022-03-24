@@ -14,3 +14,4 @@ ron = "0.7.0"
 json5 = "0.4.1"
 serde = { version = "1", features = ["derive"] }
 cgmath = "0.18.0"
+gltf = "1.0.0"

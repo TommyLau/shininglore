@@ -131,8 +131,116 @@ impl BWX {
 
     /// Load BWX file from file
     #[tracing::instrument(skip(self, filename))]
+    //pub fn load_from_file(&mut self, filename: &str) -> Result<()> {
     pub fn load_from_file(&mut self, filename: impl AsRef<Path>) -> Result<()> {
-        //pub fn load_from_file(&mut self, filename: &str) -> Result<()> {
+        // From:
+        // https://github.com/toji/gl-matrix/issues/408
+        let mmm = gltf::scene::Transform::Matrix {
+            matrix: [
+                [0.04151877760887146, 0.020675182342529297, -6.616836412121074e-9, 0.0, ],
+                [6.616837744388704e-9, 1.55635282439448e-9, 0.04638181999325752, 0.0, ],
+                [-0.020675182342529297, 0.04151877760887146, 1.5563523803052703e-9, 0.0, ],
+                [0.0, 0.0, 0.0, 1.0]
+            ]
+        };
+        debug!("Matrix: {:#?}", mmm);
+        let m4 = mmm.matrix();
+        let m3 = Matrix3 {
+            x: Vector3 { x: m4[0][0], y: m4[0][1], z: m4[0][2] },
+            y: Vector3 { x: m4[1][0], y: m4[1][1], z: m4[1][2] },
+            z: Vector3 { x: m4[2][0], y: m4[2][1], z: m4[2][2] },
+        };
+        //debug!("M3: {:#?}", m3);
+        let sx = m3.x.magnitude();
+        let sy = m3.y.magnitude();
+        let sz = m3.z.magnitude();
+        let t_s = [sx, sy, sz];
+        debug!("T_S: {:#?}", t_s);
+        let mut nx = m3.x * 1.0 / sx;
+        let ny = m3.y * 1.0 / sy;
+        let nz = m3.z * 1.0 / sz;
+        let mut nr = Matrix3 { x: nx, y: ny, z: nz };
+        debug!("N_R: {:#?}, ------- aaa: ", nr);
+        let aaa = nx.cross(ny).dot(nz);
+        if aaa < 0.0 {
+            nx = nx * -1.0;
+            nr = Matrix3 { x: nx, y: ny, z: nz };
+            debug!("New N_R: {:#?}, ------- aaa: {}", nr, aaa);
+        }
+
+
+        let mut t_r = Quaternion::from(nr).normalize();
+        debug!("T_R: {:#?}", t_r);
+        let t_t = Vector3 { x: m4[3][0], y: m4[3][1], z: m4[3][2] };
+        debug!("T_T: {:#?}", t_t);
+        let t = Matrix4::from_translation(t_t);
+        let r = Matrix4::from(t_r);
+        let s = Matrix4::from_nonuniform_scale(sx, sy, sz);
+        let x = t * r * s;
+        debug!("My Calc: {:#?}", x);
+        let m = gltf::scene::Transform::Matrix { matrix: m4 };
+        let (translation, rotation, scale) = m.decomposed();
+        debug!("Decompose rotation: {:#?}", rotation);
+        let dd = gltf::scene::Transform::Decomposed { translation, rotation, scale };
+        let d = gltf::scene::Transform::Decomposed {
+            translation: t_t.into(),
+            rotation: [
+                0.1619011,
+                -0.68832266,
+                0.6883227,
+                -0.161901,
+            ],
+            scale: t_s.into(),
+        };
+        let matrix = d.matrix();
+        //        debug!("new matrix: {:#?}", matrix);
+        debug!("old matrix: {:#?}", m4);
+        let m3 = dd.matrix();
+        debug!("round matrix: {:#?}", m3);
+
+
+        let om = Matrix4 {
+            x: Vector4 { x: m4[0][0], y: m4[0][1], z: m4[0][2], w: m4[0][3] },
+            y: Vector4 { x: m4[1][0], y: m4[1][1], z: m4[1][2], w: m4[1][3] },
+            z: Vector4 { x: m4[2][0], y: m4[2][1], z: m4[2][2], w: m4[2][3] },
+            w: Vector4 { x: m4[2][0], y: m4[2][1], z: m4[2][2], w: m4[2][3] },
+        };
+        let v = Vector4 { x: 3.0, y: 4.0, z: 5.0, w: 1.0 };
+        let t1 = om * v;
+        debug!("Test Orig: {:#?}", t1);
+        let t = Matrix4::from_translation(translation.into());
+        let rotation = Quaternion {
+            v: Vector3 {
+                x: rotation[0],
+                y: rotation[1],
+                z: rotation[2],
+            },
+            s: rotation[3],
+        };
+        let r = Matrix4::from(rotation);
+        let s = Matrix4::from_nonuniform_scale(scale[0], scale[1], scale[2]);
+        let t2 = t * r * s * v;
+        debug!("Test Decompose: {:#?}", t2);
+        let m3 = Matrix4::from(m3);
+        let t3 = m3 * v;
+        debug!("T3 round Decompose: {:#?}", t3);
+
+
+        /*
+        let mmm = gltf::scene::Transform::Matrix { matrix: m4 };
+        let (translation, rotation, scale) = mmm.decomposed();
+        debug!("t: {:#?}", translation);
+        debug!("r: {:#?}", rotation);
+        debug!("s: {:#?}", scale);
+        let decomposed = gltf::scene::Transform::Decomposed { translation, rotation, scale };
+        let matrix = decomposed.matrix();
+        debug!("new matrix: {:#?}", matrix);
+
+         */
+
+
+        return Ok(());
+
         info!("{}", filename.as_ref().display());
 
         let data = std::fs::read(filename)?;
@@ -351,10 +459,10 @@ impl BWX {
                                 for vv in v {
                                     //writeln!(output, "v {} {} {}", vv[0], vv[1], vv[2])?;
                                     // Implement Matrix transformation
-                                    debug!("Before: [{}, {}, {}]", vv[0],vv[1],vv[2]);
+                                    //debug!("Before: [{}, {}, {}]", vv[0],vv[1],vv[2]);
                                     let v = Vector4::new(vv[0], vv[1], vv[2], 1.0);
                                     let t = matrix * v;
-                                    debug!("After: [{}, {}, {}, {}]", t.x,t.y,t.z,t.w);
+                                    //debug!("After: [{}, {}, {}, {}]", t.x,t.y,t.z,t.w);
                                     writeln!(output, "v {} {} {}", t.x, t.y, t.z)?;
                                     // End Matrix transformation
                                 }
@@ -425,25 +533,93 @@ impl BWX {
 
                                  */
                                 let _timeline = buffer.read_u32::<LittleEndian>()?;
-                                let _mmm = Matrix4::new(
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                );
-                                //debug!("{:?}", mmm);
+                                //let mmm = Matrix4::new(
+                                let mmm = gltf::scene::Transform::Matrix {
+                                    matrix: [[
+                                        buffer.read_f32::<LittleEndian>()?,
+                                        buffer.read_f32::<LittleEndian>()?,
+                                        buffer.read_f32::<LittleEndian>()?,
+                                        buffer.read_f32::<LittleEndian>()?,
+                                    ], [
+                                        buffer.read_f32::<LittleEndian>()?,
+                                        buffer.read_f32::<LittleEndian>()?,
+                                        buffer.read_f32::<LittleEndian>()?,
+                                        buffer.read_f32::<LittleEndian>()?,
+                                    ], [
+                                        buffer.read_f32::<LittleEndian>()?,
+                                        buffer.read_f32::<LittleEndian>()?,
+                                        buffer.read_f32::<LittleEndian>()?,
+                                        buffer.read_f32::<LittleEndian>()?,
+                                    ], [
+                                        buffer.read_f32::<LittleEndian>()?,
+                                        buffer.read_f32::<LittleEndian>()?,
+                                        buffer.read_f32::<LittleEndian>()?,
+                                        buffer.read_f32::<LittleEndian>()?,
+                                    ]]
+                                };
+                                /*
+                                let mmm: [[f32; 4]; 4] = mmm.matrix();
+                                let o_t = cgmath::Vector3 { x: mmm[3][0], y: mmm[3][1], z: mmm[3][2] };
+                                let mmm = gltf::scene::Transform::Matrix { matrix: mmm };
+                                let o_scale = [buffer.read_f32::<LittleEndian>()?, buffer.read_f32::<LittleEndian>()?, buffer.read_f32::<LittleEndian>()?];
+                                let o_rotation = [buffer.read_f32::<LittleEndian>()?, buffer.read_f32::<LittleEndian>()?, buffer.read_f32::<LittleEndian>()?, buffer.read_f32::<LittleEndian>()?];
+                                let o_s = cgmath::Vector3 { x: o_scale[0], y: o_scale[1], z: o_scale[2] };
+                                let mut o_r = cgmath::Quaternion {
+                                    v: cgmath::Vector3 { x: o_rotation[0], y: o_rotation[1], z: o_rotation[2] },
+                                    s: o_rotation[3],
+                                };
+                                o_r = o_r.normalize();
+                                debug!("{:#?} - {:#?} - {:#?}", o_t,o_s,o_r);
+                                let t = cgmath::Matrix4::from_translation(o_t);
+                                let r = cgmath::Matrix4::from(o_r);
+                                let s = cgmath::Matrix4::from_nonuniform_scale(o_s.x, o_s.y, o_s.z);
+                                // //debug!("T: {:#?}", t);
+                                //debug!("R: {:#?}", r);
+                                //debug!("S: {:#?}", r);
+                                let x = t * r * s;
+
+                                debug!("Calculated Matrix: {:#?}", x);
+                                 */
+                                //debug!("My calc: {:#?}", x);
+                                //debug!("orig_scale: {:#?}", o_scale);
+                                //debug!("orig_rotation: {:#?}", o_rotation);
+                                debug!("Matrix: {:#?}", mmm);
+                                let m4 = mmm.matrix();
+                                let m3 = Matrix3 {
+                                    x: Vector3 { x: m4[0][0], y: m4[0][1], z: m4[0][2] },
+                                    y: Vector3 { x: m4[1][0], y: m4[1][1], z: m4[1][2] },
+                                    z: Vector3 { x: m4[2][0], y: m4[2][1], z: m4[2][2] },
+                                };
+                                //debug!("M3: {:#?}", m3);
+                                let sx = m3.x.magnitude();
+                                let sy = m3.y.magnitude();
+                                let sz = m3.z.magnitude() * m3.determinant().signum();
+                                let t_s = [sx, sy, sz];
+                                debug!("T_S: {:#?}", t_s);
+                                let nx = m3.x * 1.0 / sx;
+                                let ny = m3.y * 1.0 / sy;
+                                let nz = m3.z * 1.0 / sz;
+                                let nr = Matrix3 { x: nx, y: ny, z: nz };
+                                //debug!("N_R: {:#?}", nr);
+                                let mut t_r = Quaternion::from(nr);
+                                debug!("T_R: {:#?}", t_r);
+                                let t_t = Vector3 { x: m4[3][0], y: m4[3][1], z: m4[3][2] };
+                                debug!("T_T: {:#?}", t_t);
+                                let t = Matrix4::from_translation(t_t);
+                                let r = Matrix4::from(t_r);
+                                let s = Matrix4::from_nonuniform_scale(sx, sy, sz);
+                                let x = t * r * s;
+                                debug!("My Calc: {:#?}", x);
+                                let mmm = gltf::scene::Transform::Matrix { matrix: m4 };
+                                let (translation, rotation, scale) = mmm.decomposed();
+                                debug!("t: {:#?}", translation);
+                                debug!("r: {:#?}", rotation);
+                                debug!("s: {:#?}", scale);
+                                let decomposed = gltf::scene::Transform::Decomposed { translation, rotation, scale };
+                                let matrix = decomposed.matrix();
+                                debug!("new matrix: {:#?}", matrix);
+
+
                                 // TODO: Update logic here, processing only one matrix right now
                                 break;
                             }
@@ -618,7 +794,7 @@ impl BWX {
                 trace!("[Independent Data] - Value: {}", s);
                 SlType::UChar(s)
             }
-            s  if s >= 0x80 => {
+            s if s >= 0x80 => {
                 // Independent data block
                 let size = s as usize & 0x7f;
                 trace!("[Independent Data Block] - Size: {}", size);

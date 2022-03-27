@@ -5,7 +5,9 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use tracing::{debug, error, info, trace, warn};
 use serde::Serialize;
 use cgmath::*;
-use gltf::Gltf;
+use gltf::{Gltf, json::{self, validation::Checked::Valid}, Node, scene::Transform::Matrix};
+use gltf::json::Asset;
+
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -117,6 +119,11 @@ pub struct BWX {
     pub data: SlType,
     version: i32,
     vertices: Vec<Vertex>,
+    buffer: Vec<u8>,
+    buffer_views: Vec<json::buffer::View>,
+    accessors: Vec<json::Accessor>,
+    meshes: Vec<json::Mesh>,
+    nodes: Vec<json::Node>,
 }
 
 pub fn print_matrix<T>(m: &Matrix4<T>)
@@ -514,6 +521,129 @@ impl BWX {
                                 let vertex_buffer = vertex[5].data()?;
                                 trace!("\t\tVertex: [Timer: {}, Type: {}, Count: {}, Size: {}, BufLen: {}",
                                 timer, vertex_type, vertex_count, vertex_size, vertex_buffer.len());
+                                // 111
+                                let mut buffer_view_index = self.buffer_views.len();
+                                let accessor_index = self.accessors.len() as u32;
+                                let mesh_index = self.meshes.len() as u32;
+
+                                let m = [
+                                    matrix.x.x, matrix.x.y, matrix.x.z, matrix.x.w,
+                                    matrix.y.x, matrix.y.y, matrix.y.z, matrix.y.w,
+                                    matrix.z.x, matrix.z.y, matrix.z.z, matrix.z.w,
+                                    matrix.w.x, matrix.w.y, matrix.w.z, matrix.w.w,
+                                ];
+                                let node = json::Node {
+                                    camera: None,
+                                    children: None,
+                                    extensions: Default::default(),
+                                    extras: Default::default(),
+                                    // TODO: Update matrix here later!
+                                    matrix: Some(m),
+                                    mesh: Some(json::Index::new(mesh_index)),
+                                    name: Some(name.clone().into()),
+                                    rotation: None,
+                                    scale: None,
+                                    translation: None,
+                                    skin: None,
+                                    weights: None,
+                                };
+                                self.nodes.push(node);
+
+                                // Mesh - Perimitive
+                                let primitive = json::mesh::Primitive {
+                                    attributes: {
+                                        let mut map = std::collections::HashMap::new();
+                                        map.insert(Valid(json::mesh::Semantic::Positions), json::Index::new(accessor_index));
+                                        map.insert(Valid(json::mesh::Semantic::Normals), json::Index::new(accessor_index + 1));
+                                        map.insert(Valid(json::mesh::Semantic::TexCoords(0)), json::Index::new(accessor_index + 2));
+                                        map
+                                    },
+                                    extensions: Default::default(),
+                                    extras: Default::default(),
+                                    indices: Some(json::Index::new(accessor_index + 3)),
+                                    material: None,
+                                    mode: Valid(json::mesh::Mode::Triangles),
+                                    targets: None,
+                                };
+
+                                let mesh = json::Mesh {
+                                    extensions: Default::default(),
+                                    extras: Default::default(),
+                                    name: Some(name.clone().into()),
+                                    primitives: vec![primitive],
+                                    weights: None,
+                                };
+                                self.meshes.push(mesh);
+
+                                // Vertex
+                                let mut accessor = json::Accessor {
+                                    buffer_view: Some(json::Index::new(buffer_view_index as u32)),
+                                    byte_offset: 0,
+                                    count: vertex_count as u32,
+                                    component_type: Valid(json::accessor::GenericComponentType(
+                                        json::accessor::ComponentType::F32
+                                    )),
+                                    extensions: None,
+                                    extras: Default::default(),
+                                    type_: Valid(json::accessor::Type::Vec3),
+                                    min: None,
+                                    max: None,
+                                    name: None,
+                                    normalized: false,
+                                    sparse: None,
+                                };
+                                self.accessors.push(accessor.clone());
+                                // Normal
+                                accessor.byte_offset = (3 * mem::size_of::<f32>()) as u32;
+                                self.accessors.push(accessor.clone());
+                                // Texture Coordinate
+                                accessor.byte_offset = (6 * mem::size_of::<f32>()) as u32;
+                                accessor.type_ = Valid(json::accessor::Type::Vec2);
+                                self.accessors.push(accessor.clone());
+
+                                let mut buffer_view = json::buffer::View {
+                                    buffer: json::Index::new(0),
+                                    byte_length: vertex_buffer.len() as u32,
+                                    byte_offset: Some(self.buffer.len() as u32),
+                                    byte_stride: Some(vertex_size as u32),
+                                    name: None,
+                                    target: None,
+                                    extensions: None,
+                                    extras: Default::default(),
+                                };
+                                self.buffer_views.push(buffer_view.clone());
+
+                                // Index Buffer ------------------
+                                buffer_view_index = self.buffer_views.len();
+                                // Accessor for index
+                                let accessor = json::Accessor {
+                                    buffer_view: Some(json::Index::new(buffer_view_index as u32)),
+                                    byte_offset: 0,
+                                    count: index_count as u32,
+                                    component_type: Valid(json::accessor::GenericComponentType(
+                                        json::accessor::ComponentType::U16
+                                    )),
+                                    extensions: None,
+                                    extras: Default::default(),
+                                    type_: Valid(json::accessor::Type::Scalar),
+                                    min: None,
+                                    max: None,
+                                    name: None,
+                                    normalized: false,
+                                    sparse: None,
+                                };
+                                self.accessors.push(accessor);
+                                // Index bufferView
+                                buffer_view_index = self.buffer_views.len();
+                                self.buffer.append(&mut vertex_buffer.clone());
+                                debug!("self.buffer_vertex = {}", self.buffer.len());
+                                buffer_view.buffer = json::Index::new(0);
+                                buffer_view.byte_length = index_buffer.len() as u32;
+                                buffer_view.byte_offset = Some(self.buffer.len() as u32);
+                                buffer_view.byte_stride = None;
+                                self.buffer_views.push(buffer_view);
+                                self.buffer.append(&mut index_buffer.clone());
+                                debug!("self.buffer_index = {}", self.buffer.len());
 
                                 // Test
                                 let mut v_buffer = Cursor::new(vertex_buffer);
@@ -754,7 +884,54 @@ impl BWX {
         // Test obj code
 
         std::fs::write("test.obj", output)?;
-        debug!("{:#?}", self.vertices.len());
+
+
+        let buffer = json::Buffer {
+            byte_length: self.buffer.len() as u32,
+            extensions: Default::default(),
+            extras: Default::default(),
+            name: None,
+            uri: Some("test.bin".into()),
+        };
+
+        let asset = json::Asset {
+            copyright: Some("SLODT All Rights Reserved. (C) 2022".into()),
+            extensions: None,
+            extras: Default::default(),
+            generator: Some("Tommy's BWX Exporter".into()),
+            min_version: None,
+            version: "2.0".to_string(),
+        };
+
+        //let a: Vec<json::Index<Node>> = (0..10u32).map(|x| json::Index::new(x)).colletc();
+        let scene_nodes: Vec<json::Index<json::Node>> = (0..self.nodes.len() as u32)
+            .map(|x| json::Index::new(x)).collect();
+
+        let root = json::Root {
+            asset,
+            scene: Some(json::Index::new(0)),
+            scenes: vec![json::Scene {
+                extensions: Default::default(),
+                extras: Default::default(),
+                name: Some("Scene".into()),
+                nodes: scene_nodes,
+            }],
+            nodes: self.nodes.clone(),
+            meshes: self.meshes.clone(),
+            accessors: self.accessors.clone(),
+            buffer_views: self.buffer_views.clone(),
+            buffers: vec![buffer],
+            ..Default::default()
+        };
+
+
+        //debug!("Buffer Views:\n{:#?}", self.buffer_views);
+        //debug!("Accessors:\n{:#?}", self.accessors);
+        let j = json::serialize::to_string_pretty(&root).expect("OK");
+        debug!("glTF:\n{}", j);
+
+        std::fs::write("test.gltf", j.as_bytes());
+        std::fs::write("test.bin", self.buffer.clone());
 
 
         Ok(())

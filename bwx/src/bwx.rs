@@ -7,6 +7,7 @@ use serde::Serialize;
 use cgmath::*;
 use gltf::{Gltf, json::{self, validation::Checked::Valid}, Node, scene::Transform::Matrix};
 use gltf::json::Asset;
+use gltf::texture::{MinFilter, MagFilter, WrappingMode};
 
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -124,6 +125,9 @@ pub struct BWX {
     accessors: Vec<json::Accessor>,
     meshes: Vec<json::Mesh>,
     nodes: Vec<json::Node>,
+    images: Vec<json::Image>,
+    textures: Vec<json::Texture>,
+    materials: Vec<json::Material>,
 }
 
 pub fn print_matrix<T>(m: &Matrix4<T>)
@@ -401,7 +405,8 @@ impl BWX {
                         // material[0] - Material Group "MTRL"
                         // material[1] - Material Group Name
                         // material[2..n] - Material Array for Sub Materials
-                        trace!("Material: {}", material[1].string()?);
+                        let name = material[1].string()?;
+                        trace!("Material: {}", name);
                         for (i, sub_materials) in material.iter().enumerate().skip(2) {
                             let sub_material = sub_materials.array()?;
                             let highlight = sub_material[5].float()?;
@@ -417,12 +422,71 @@ impl BWX {
                             let filename = if sub_material.len() > 8 {
                                 // Some materials have no texture, such as glass
                                 let texture = sub_material[8].array()?;
-                                // 0 - TEX
+                                // 0 - "TEX"
                                 // 1 - Most 0x00, timer?
                                 // 2 - Filename
                                 let filename = texture[2].string()?;
                                 filename.split('\\').last().unwrap().into()
                             } else { "".to_string() };
+
+                            let mut texture_index = self.textures.len() as u32;
+
+                            let a = self.images.iter()
+                                .position(|x| x.uri.as_ref() == Some(&filename));
+                            let texture_index = if a.is_some() {
+                                //debug!("Found duplicate image: {}", filename);
+                                a.unwrap() as u32
+                            } else {
+                                let texture_index = self.textures.len() as u32;
+                                let image_index = self.images.len() as u32;
+                                let image = json::Image {
+                                    buffer_view: None,
+                                    mime_type: None,
+                                    name: None,
+                                    uri: Some(filename.clone()),
+                                    extensions: None,
+                                    extras: Default::default(),
+                                };
+                                self.images.push(image);
+                                let texture = json::Texture {
+                                    name: None,
+                                    sampler: Some(json::Index::new(0)),
+                                    source: json::Index::new(image_index),
+                                    extensions: None,
+                                    extras: Default::default(),
+                                };
+                                self.textures.push(texture);
+                                texture_index
+                            };
+
+                            let material = json::Material {
+                                alpha_cutoff: None,
+                                alpha_mode: Default::default(),
+                                double_sided: false,
+                                name: Some(name.clone()),
+                                pbr_metallic_roughness: json::material::PbrMetallicRoughness {
+                                    base_color_factor: Default::default(),
+                                    base_color_texture: Some(json::texture::Info {
+                                        index: json::Index::new(texture_index),
+                                        tex_coord: 0,
+                                        extensions: None,
+                                        extras: Default::default(),
+                                    }),
+                                    metallic_factor: Default::default(),
+                                    roughness_factor: Default::default(),
+                                    metallic_roughness_texture: None,
+                                    extensions: None,
+                                    extras: Default::default(),
+                                },
+                                normal_texture: None,
+                                occlusion_texture: None,
+                                emissive_texture: None,
+                                emissive_factor: Default::default(),
+                                extensions: None,
+                                extras: Default::default(),
+                            };
+                            self.materials.push(material);
+
                             trace!("\tSub Material {}: Highlight: {}, File: {}", i - 2, highlight, filename);
                         }
                     }
@@ -526,7 +590,7 @@ impl BWX {
                                 let accessor_index = self.accessors.len() as u32;
                                 let mesh_index = self.meshes.len() as u32;
 
-                                let m = [
+                                let node_matrix = [
                                     matrix.x.x, matrix.x.y, matrix.x.z, matrix.x.w,
                                     matrix.y.x, matrix.y.y, matrix.y.z, matrix.y.w,
                                     matrix.z.x, matrix.z.y, matrix.z.z, matrix.z.w,
@@ -537,8 +601,7 @@ impl BWX {
                                     children: None,
                                     extensions: Default::default(),
                                     extras: Default::default(),
-                                    // TODO: Update matrix here later!
-                                    matrix: Some(m),
+                                    matrix: Some(node_matrix),
                                     mesh: Some(json::Index::new(mesh_index)),
                                     name: Some(name.clone().into()),
                                     rotation: None,
@@ -554,14 +617,16 @@ impl BWX {
                                     attributes: {
                                         let mut map = std::collections::HashMap::new();
                                         map.insert(Valid(json::mesh::Semantic::Positions), json::Index::new(accessor_index));
-                                        map.insert(Valid(json::mesh::Semantic::Normals), json::Index::new(accessor_index + 1));
+                                        // FIXME: Something wrong with the normals, might be DirectX clock-wise normal calculation?
+                                        // Disable for now
+                                        //map.insert(Valid(json::mesh::Semantic::Normals), json::Index::new(accessor_index + 1));
                                         map.insert(Valid(json::mesh::Semantic::TexCoords(0)), json::Index::new(accessor_index + 2));
                                         map
                                     },
                                     extensions: Default::default(),
                                     extras: Default::default(),
                                     indices: Some(json::Index::new(accessor_index + 3)),
-                                    material: None,
+                                    material: if texture_index < 0 { None } else { Some(json::Index::new(texture_index as u32)) },
                                     mode: Valid(json::mesh::Mode::Triangles),
                                     targets: None,
                                 };
@@ -636,14 +701,12 @@ impl BWX {
                                 // Index bufferView
                                 buffer_view_index = self.buffer_views.len();
                                 self.buffer.append(&mut vertex_buffer.clone());
-                                debug!("self.buffer_vertex = {}", self.buffer.len());
                                 buffer_view.buffer = json::Index::new(0);
                                 buffer_view.byte_length = index_buffer.len() as u32;
                                 buffer_view.byte_offset = Some(self.buffer.len() as u32);
                                 buffer_view.byte_stride = None;
                                 self.buffer_views.push(buffer_view);
                                 self.buffer.append(&mut index_buffer.clone());
-                                debug!("self.buffer_index = {}", self.buffer.len());
 
                                 // Test
                                 let mut v_buffer = Cursor::new(vertex_buffer);
@@ -821,7 +884,7 @@ impl BWX {
                                 //debug!("My calc: {:#?}", x);
                                 //debug!("orig_scale: {:#?}", o_scale);
                                 //debug!("orig_rotation: {:#?}", o_rotation);
-                                debug!("Matrix: {:#?}", mmm);
+                                // debug!("Matrix: {:#?}", mmm);
                                 let m4 = mmm.matrix();
                                 let m3 = Matrix3 {
                                     x: Vector3 { x: m4[0][0], y: m4[0][1], z: m4[0][2] },
@@ -833,30 +896,30 @@ impl BWX {
                                 let sy = m3.y.magnitude();
                                 let sz = m3.z.magnitude() * m3.determinant().signum();
                                 let t_s = [sx, sy, sz];
-                                debug!("T_S: {:#?}", t_s);
+                                // debug!("T_S: {:#?}", t_s);
                                 let nx = m3.x * 1.0 / sx;
                                 let ny = m3.y * 1.0 / sy;
                                 let nz = m3.z * 1.0 / sz;
                                 let nr = Matrix3 { x: nx, y: ny, z: nz };
                                 //debug!("N_R: {:#?}", nr);
                                 let mut t_r = Quaternion::from(nr);
-                                debug!("T_R: {:#?}", t_r);
+                                // debug!("T_R: {:#?}", t_r);
                                 let t_t = Vector3 { x: m4[3][0], y: m4[3][1], z: m4[3][2] };
-                                debug!("T_T: {:#?}", t_t);
+                                // debug!("T_T: {:#?}", t_t);
                                 let t = Matrix4::from_translation(t_t);
                                 let r = Matrix4::from(t_r);
                                 let s = Matrix4::from_nonuniform_scale(sx, sy, sz);
                                 let x = t * r * s;
-                                debug!("My Calc: {:#?}", x);
+                                // debug!("My Calc: {:#?}", x);
                                 let mmm = gltf::scene::Transform::Matrix { matrix: m4 };
                                 let (translation, rotation, scale) = mmm.decomposed();
-                                debug!("t: {:#?}", translation);
-                                debug!("r: {:#?}", rotation);
-                                debug!("s: {:#?}", scale);
+                                // debug!("t: {:#?}", translation);
+                                // debug!("r: {:#?}", rotation);
+                                // debug!("s: {:#?}", scale);
                                 let decomposed = gltf::scene::Transform::Decomposed { translation, rotation, scale };
                                 let matrix = decomposed.matrix();
-                                debug!("new matrix: {:#?}", matrix);
-                                debug!("origin matrix: {:#?}", m4);
+                                // debug!("new matrix: {:#?}", matrix);
+                                // debug!("origin matrix: {:#?}", m4);
 
 
                                 // TODO: Update logic here, processing only one matrix right now
@@ -907,6 +970,16 @@ impl BWX {
         let scene_nodes: Vec<json::Index<json::Node>> = (0..self.nodes.len() as u32)
             .map(|x| json::Index::new(x)).collect();
 
+        let sampler = json::texture::Sampler {
+            mag_filter: Some(Valid(MagFilter::Nearest)),
+            min_filter: Some(Valid(MinFilter::Nearest)),
+            name: None,
+            wrap_s: Valid(WrappingMode::ClampToEdge),
+            wrap_t: Valid(WrappingMode::ClampToEdge),
+            extensions: None,
+            extras: Default::default(),
+        };
+
         let root = json::Root {
             asset,
             scene: Some(json::Index::new(0)),
@@ -921,6 +994,10 @@ impl BWX {
             accessors: self.accessors.clone(),
             buffer_views: self.buffer_views.clone(),
             buffers: vec![buffer],
+            samplers: vec![sampler],
+            materials: self.materials.clone(),
+            textures: self.textures.clone(),
+            images: self.images.clone(),
             ..Default::default()
         };
 
@@ -928,7 +1005,7 @@ impl BWX {
         //debug!("Buffer Views:\n{:#?}", self.buffer_views);
         //debug!("Accessors:\n{:#?}", self.accessors);
         let j = json::serialize::to_string_pretty(&root).expect("OK");
-        debug!("glTF:\n{}", j);
+        //debug!("glTF:\n{}", j);
 
         std::fs::write("test.gltf", j.as_bytes());
         std::fs::write("test.bin", self.buffer.clone());

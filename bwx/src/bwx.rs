@@ -1,9 +1,11 @@
 use std::io::{Cursor, Read};
 use std::path::Path;
+use std::{mem, fs};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use tracing::{debug, error, info, trace, warn};
 use serde::Serialize;
 use cgmath::*;
+use gltf::Gltf;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -101,12 +103,30 @@ pub struct Material {
     pub sub_materials: Vec<SubMaterial>,
 }
 
+#[derive(Debug, Default, Copy, Clone)]
+pub struct Vertex {
+    position: [f32; 3],
+    normal: [f32; 3],
+    tex_coord: [f32; 2],
+}
+
 #[derive(Debug, Default)]
 /// A BWX class to handle ShiningLore BNX / PNX file
 pub struct BWX {
     content: Cursor<Vec<u8>>,
     pub data: SlType,
     version: i32,
+    vertices: Vec<Vertex>,
+}
+
+pub fn print_matrix<T>(m: &Matrix4<T>)
+    where
+        T: std::fmt::Display,
+{
+    println!("{0:<30}{1:<30}{2:<30}{3:<30}", m.x.x, m.y.x, m.z.x, m.w.x);
+    println!("{0:<30}{1:<30}{2:<30}{3:<30}", m.x.y, m.y.y, m.z.y, m.w.y);
+    println!("{0:<30}{1:<30}{2:<30}{3:<30}", m.x.z, m.y.z, m.z.z, m.w.z);
+    println!("{0:<30}{1:<30}{2:<30}{3:<30}", m.x.w, m.y.w, m.z.w, m.w.w);
 }
 
 impl BWX {
@@ -132,7 +152,11 @@ impl BWX {
     /// Load BWX file from file
     #[tracing::instrument(skip(self, filename))]
     //pub fn load_from_file(&mut self, filename: &str) -> Result<()> {
-    pub fn load_from_file(&mut self, filename: impl AsRef<Path>) -> Result<()> {
+    pub fn load_from_file<T>(&mut self, filename: T) -> Result<()>
+        where T: AsRef<Path>
+    {
+        /*
+        // Now I got the idea of how to inverse the matrix
         // From:
         // https://github.com/toji/gl-matrix/issues/408
         let mmm = gltf::scene::Transform::Matrix {
@@ -143,7 +167,80 @@ impl BWX {
                 [0.0, 0.0, 0.0, 1.0]
             ]
         };
-        debug!("Matrix: {:#?}", mmm);
+        let m: [[f64; 4]; 4] = [
+            [0.6007744, -1.0449057e-6, 9.0477204e-7, 0.0, ],
+            [1.0107502e-6, 0.5811367, 9.953766e-9, 0.0, ],
+            [-1.6252185e-6, -1.7125686e-8, 1.0, 0.0, ],
+            [-1.730051e-9, -0.7697969, -0.019488811, 1.0, ]
+        ];
+        let m2: [[f32; 4]; 4] = [
+            [0.6007744, -1.0449057e-6, 9.0477204e-7, 0.0, ],
+            [1.0107502e-6, 0.5811367, 9.953766e-9, 0.0, ],
+            [-1.6252185e-6, -1.7125686e-8, 1.0, 0.0, ],
+            [-1.730051e-9, -0.7697969, -0.019488811, 1.0, ]
+        ];
+
+        let translation = Vector3 { x: m[3][0], y: m[3][1], z: m[3][2] };
+        debug!("Translation: {:#?}", translation);
+        let mut i = Matrix3 {
+            x: Vector3 { x: m[0][0], y: m[0][1], z: m[0][2] },
+            y: Vector3 { x: m[1][0], y: m[1][1], z: m[1][2] },
+            z: Vector3 { x: m[2][0], y: m[2][1], z: m[2][2] },
+        };
+        let sx = i.x.magnitude();
+        let sy = i.y.magnitude();
+        let sz = i.determinant().signum() * i.z.magnitude();
+        let scale = [sx, sy, sz];
+        debug!("Scale: {:#?}", scale);
+        /*
+        i.x *= 1.0 / sx;
+        i.y *= 1.0 / sy;
+        i.z *= 1.0 / sz;
+
+         */
+        let q = Quaternion::from(i);
+        let rotation = [q.v.x, q.v.y, q.v.z, q.s];
+        debug!("Rotation: {:#?}", rotation);
+
+        let t = Matrix4::from_translation(translation);
+        let r = Matrix4::from(q);
+        let s = Matrix4::from_nonuniform_scale(sx, sy, sz);
+        //debug!("T: {:#?}", t);
+        //debug!("R: {:#?}", r);
+        //debug!("S: {:#?}", r);
+        let x = t * r * s;
+
+        debug!("Matrix:");
+        let mm = Matrix4::from(m);
+        print_matrix(&mm);
+        debug!("Calculated Matrix:");
+        print_matrix(&x);
+
+        // Calculate f32
+        let t = Vector3 { x: -1.730051e-9f32, y: -0.7697969f32, z: -0.019488811f32 };
+        let q = Quaternion {
+            v: Vector3 { x: (q.v.x as f32), y: (q.v.y as f32), z: (q.v.z as f32) },
+            s: (q.s as f32),
+        };
+        let (sx, sy, sz) = (sx as f32, sy as f32, sz as f32);
+        let t = Matrix4::from_translation(t);
+        let r = Matrix4::from(q);
+        let s = Matrix4::from_nonuniform_scale(sx, sy, sz);
+        let x = t * r * s;
+
+        debug!("Calculated Matrix in f32:");
+        print_matrix(&x);
+
+
+        // Library calculation
+        let m = gltf::scene::Transform::Matrix { matrix: m2 };
+        let (translation, rotation, scale) = m.decomposed();
+        let mm = gltf::scene::Transform::Decomposed { translation, rotation, scale };
+        let mm = Matrix4::from(mm.matrix());
+        debug!("Library Matrix in f32:");
+        print_matrix(&mm);
+
+        return Ok(());
         let m4 = mmm.matrix();
         let m3 = Matrix3 {
             x: Vector3 { x: m4[0][0], y: m4[0][1], z: m4[0][2] },
@@ -225,6 +322,8 @@ impl BWX {
         let t3 = m3 * v;
         debug!("T3 round Decompose: {:#?}", t3);
 
+         */
+
 
         /*
         let mmm = gltf::scene::Transform::Matrix { matrix: m4 };
@@ -239,7 +338,8 @@ impl BWX {
          */
 
 
-        return Ok(());
+        //return Ok(());
+
 
         info!("{}", filename.as_ref().display());
 
@@ -424,38 +524,44 @@ impl BWX {
                                     let x = v_buffer.read_f32::<LittleEndian>()?;
                                     let y = v_buffer.read_f32::<LittleEndian>()?;
                                     let z = v_buffer.read_f32::<LittleEndian>()?;
-                                    // Disable the ugly hack and try to use Matrix calculation instead
+                                    let vv = Vector4::new(x, y, z, 1.0);
+                                    // Normal code
                                     /*
-                                    if name.chars().last().unwrap() == 'L' {
-                                        if x < 0.0 {
-                                            x = -x;
-                                        }
-                                    }
-                                    if name.chars().last().unwrap() == 'R' {
-                                        if x > 0.0 {
-                                            x = -x;
-                                        }
-                                    }
+                                    // let t = matrix * vv;
+                                    // writeln!(output, "v {} {} {}", t.x, t.y, t.z)?;
                                      */
-                                    v.push([x, y, z]);
-                                    /*
-                                    v.push([
+                                    // ??? DirectX and OpenGL got different Z-Axis
+                                    // ??? Since the game was originally develop for DirectX
+                                    // ??? Reverse the Z-Axis to fit OpenGL spec
+                                    //
+                                    // Add rotation to fit Blender?!
+                                    // Method 1, change (x,y,z) -> (x,z,-y)
+                                    //writeln!(output, "v {} {} {}", t.x, t.z, -t.y)?;
+                                    // Method 2, rotate -90 degrees along x-axis
+                                    let rot = Matrix4::from_angle_x(Rad(-90.0f32.to_radians()));
+                                    let t = rot * matrix * vv;
+                                    writeln!(output, "v {} {} {}", t.x, t.y, t.z)?;
+                                    // End Blender rotation
+                                    let position = [t.x, t.y, t.z];
+                                    v.push(position);
+                                    let normal = [
                                         v_buffer.read_f32::<LittleEndian>()?,
                                         v_buffer.read_f32::<LittleEndian>()?,
                                         v_buffer.read_f32::<LittleEndian>()?,
-                                    ]);
-
-                                     */
-                                    vn.push([
+                                    ];
+                                    vn.push(normal);
+                                    let tex_coord = [
                                         v_buffer.read_f32::<LittleEndian>()?,
                                         v_buffer.read_f32::<LittleEndian>()?,
-                                        v_buffer.read_f32::<LittleEndian>()?,
-                                    ]);
-                                    vt.push([
-                                        v_buffer.read_f32::<LittleEndian>()?,
-                                        v_buffer.read_f32::<LittleEndian>()?,
-                                    ]);
+                                    ];
+                                    vt.push(tex_coord);
+                                    self.vertices.push(Vertex {
+                                        position,
+                                        normal,
+                                        tex_coord,
+                                    });
                                 }
+                                /*
                                 for vv in v {
                                     //writeln!(output, "v {} {} {}", vv[0], vv[1], vv[2])?;
                                     // Implement Matrix transformation
@@ -466,6 +572,7 @@ impl BWX {
                                     writeln!(output, "v {} {} {}", t.x, t.y, t.z)?;
                                     // End Matrix transformation
                                 }
+                                 */
                                 /*
                                 for vv in vn {
                                     writeln!(output, "vn {} {} {}", vv[0], vv[1], vv[2])?;
@@ -485,7 +592,8 @@ impl BWX {
                                     let b = v_buffer.read_u16::<LittleEndian>()? as u32 + idx;
                                     let c = v_buffer.read_u16::<LittleEndian>()? as u32 + idx;
                                     //writeln!(output, "f {}/{}/{}", a, b, c)?;
-                                    writeln!(output, "f {} {} {}", c, a, b)?;
+                                    // ??? Change DirectX clock-wise to counter clock-wise
+                                    writeln!(output, "f {} {} {}", a, b, c)?;
                                 }
                                 idx += vertex_count as u32;
                                 // End test
@@ -618,6 +726,7 @@ impl BWX {
                                 let decomposed = gltf::scene::Transform::Decomposed { translation, rotation, scale };
                                 let matrix = decomposed.matrix();
                                 debug!("new matrix: {:#?}", matrix);
+                                debug!("origin matrix: {:#?}", m4);
 
 
                                 // TODO: Update logic here, processing only one matrix right now
@@ -645,8 +754,8 @@ impl BWX {
         // Test obj code
 
         std::fs::write("test.obj", output)?;
+        debug!("{:#?}", self.vertices.len());
 
-        // End test obj code
 
         Ok(())
     }
@@ -812,6 +921,23 @@ impl BWX {
         Ok(data)
     }
 }
+
+fn align_to_multiple_of_four(n: &mut u32) {
+    *n = (*n + 3) & !3;
+}
+
+fn to_padded_byte_vector<T>(vec: Vec<T>) -> Vec<u8> {
+    let byte_length = vec.len() * mem::size_of::<T>();
+    let byte_capacity = vec.capacity() * mem::size_of::<T>();
+    let alloc = vec.into_boxed_slice();
+    let ptr = Box::<[T]>::into_raw(alloc) as *mut u8;
+    let mut new_vec = unsafe { Vec::from_raw_parts(ptr, byte_length, byte_capacity) };
+    while new_vec.len() % 4 != 0 {
+        new_vec.push(0); // pad to multiple of four bytes
+    }
+    new_vec
+}
+
 
 #[cfg(test)]
 mod tests {

@@ -527,6 +527,7 @@ dependencies = [
 name = "sl-client"
 version = "0.1.0"
 dependencies = [
+ "gltf",
  "sl-bwx",
  "tracing",
  "tracing-subscriber",

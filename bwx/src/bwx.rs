@@ -716,30 +716,34 @@ impl BWX {
                                 buffer_view.byte_stride = None;
                                 self.buffer_views.push(buffer_view);
 
-                                // Change (a, b, c) -> <a, c, b>
-                                let mut i_buffer = Cursor::new(index_buffer);
-                                let mut o_buffer = Cursor::new(vec![]);
-                                for _i in 0..index_count / 3 {
-                                    let a = i_buffer.read_u16::<LittleEndian>()?;
-                                    let b = i_buffer.read_u16::<LittleEndian>()?;
-                                    let c = i_buffer.read_u16::<LittleEndian>()?;
-                                    o_buffer.write_u16::<LittleEndian>(a)?;
-                                    o_buffer.write_u16::<LittleEndian>(c)?;
-                                    o_buffer.write_u16::<LittleEndian>(b)?;
-                                    /*
-                                    o_buffer.push(a);
-                                    o_buffer.push(c);
-                                    o_buffer.push(b);
+                                if direction.starts_with("MSHX") {
+                                    // "MSHX", DirectX, left hand clockwise triangles
+                                    // Have to be changed to right hand counter-clockwise for OpenGL
+                                    // Change (a, b, c) -> <a, c, b>
+                                    debug!("------ changing order ------");
+                                    let mut i_buffer = Cursor::new(index_buffer);
+                                    let mut o_buffer = Cursor::new(vec![]);
+                                    for _i in 0..index_count / 3 {
+                                        let a = i_buffer.read_u16::<LittleEndian>()?;
+                                        let b = i_buffer.read_u16::<LittleEndian>()?;
+                                        let c = i_buffer.read_u16::<LittleEndian>()?;
+                                        o_buffer.write_u16::<LittleEndian>(a)?;
+                                        o_buffer.write_u16::<LittleEndian>(c)?;
+                                        o_buffer.write_u16::<LittleEndian>(b)?;
+                                        /*
+                                        o_buffer.push(a);
+                                        o_buffer.push(c);
+                                        o_buffer.push(b);
 
-                                     */
+                                         */
+                                    }
+                                    let mut buffer = o_buffer.into_inner();
+                                    self.buffer.append(&mut buffer);
+                                    // End order changing
+                                } else {
+                                    // Original order, store to binary directly
+                                    self.buffer.append(&mut index_buffer.clone());
                                 }
-                                let mut buffer = o_buffer.into_inner();
-                                self.buffer.append(&mut buffer);
-                                // End order changing
-
-
-                                // Original order, store to binary directly
-                                //self.buffer.append(&mut index_buffer.clone());
 
                                 // Test
                                 let mut v_buffer = Cursor::new(vertex_buffer);

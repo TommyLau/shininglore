@@ -526,6 +526,14 @@ impl BWX {
                         let texture_index = object[3].int()?;
                         writeln!(output, "o {}", name)?;
                         trace!("Object: {}, Index: {}", name, texture_index);
+                        // TODO: MSHX = clockwise?, MNHX = counter-clockwise?
+                        let mut direction = vec![];
+                        direction.write_i32::<byteorder::BigEndian>(object[6].int()?)?;
+                        let direction = std::str::from_utf8(&direction).unwrap();
+                        // After checking, no matter MSHX nor MNHX, we have to change the index order
+                        // DirectX is rendering in clockwise, OpenGL is rendering in couter-clockwise
+                        // So we have to change the order from (a, b, c) -> (a, c, b)
+                        debug!("Direction: {}", direction);
                         //------------------------------
                         // Get only the first matrix
                         let matrix = {
@@ -707,7 +715,31 @@ impl BWX {
                                 buffer_view.byte_offset = Some(self.buffer.len() as u32);
                                 buffer_view.byte_stride = None;
                                 self.buffer_views.push(buffer_view);
-                                self.buffer.append(&mut index_buffer.clone());
+
+                                // Change (a, b, c) -> <a, c, b>
+                                let mut i_buffer = Cursor::new(index_buffer);
+                                let mut o_buffer = Cursor::new(vec![]);
+                                for _i in 0..index_count / 3 {
+                                    let a = i_buffer.read_u16::<LittleEndian>()?;
+                                    let b = i_buffer.read_u16::<LittleEndian>()?;
+                                    let c = i_buffer.read_u16::<LittleEndian>()?;
+                                    o_buffer.write_u16::<LittleEndian>(a)?;
+                                    o_buffer.write_u16::<LittleEndian>(c)?;
+                                    o_buffer.write_u16::<LittleEndian>(b)?;
+                                    /*
+                                    o_buffer.push(a);
+                                    o_buffer.push(c);
+                                    o_buffer.push(b);
+
+                                     */
+                                }
+                                let mut buffer = o_buffer.into_inner();
+                                self.buffer.append(&mut buffer);
+                                // End order changing
+
+
+                                // Original order, store to binary directly
+                                //self.buffer.append(&mut index_buffer.clone());
 
                                 // Test
                                 let mut v_buffer = Cursor::new(vertex_buffer);

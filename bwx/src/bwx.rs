@@ -437,10 +437,16 @@ impl BWX {
                                     filename.to_lowercase()
                                         .split('.').next().unwrap()
                                         .to_owned() + ".png",
-                                    filename.to_owned()
+                                    if filename[filename.len() - 3..].to_lowercase().starts_with("dds") {
+                                        filename.to_owned() + ".png"
+                                    } else {
+                                        filename.to_owned()
+                                    }
                                 )
                             } else { ("".into(), "".into()) };
 
+
+                            debug!("TGA File: {}", tga);
                             let a = self.images.iter()
                                 .position(|x| x.uri.as_ref() == Some(&filename));
                             let texture_index = if a.is_some() {
@@ -784,8 +790,7 @@ impl BWX {
                                 // The mesh data with normals are incorrect, comment out the following code
                                 // and use only "DOUBLE SIDED" material? MAYBE...
                                 // TODO: Comment out the code or not?!
-                                if (direction.starts_with("MSHX") && !force_no_reorder) || force_reorder
-                                {
+                                if direction.starts_with("MSHX") {
                                     // "MSHX", DirectX, left hand clockwise triangles
                                     // Have to be changed to right hand counter-clockwise for OpenGL
                                     // Change (a, b, c) -> <a, c, b>

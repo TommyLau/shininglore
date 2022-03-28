@@ -130,6 +130,8 @@ pub struct BWX {
     images: Vec<json::Image>,
     textures: Vec<json::Texture>,
     materials: Vec<json::Material>,
+    // Store the material group information
+    material_index: Vec<Vec<u32>>,
 }
 
 pub fn print_matrix<T>(m: &Matrix4<T>)
@@ -403,14 +405,15 @@ impl BWX {
                 }
                 "MTRL" => {
                     // TODO: Save material information in struct
-                    for materials in children {
-                        let material = materials.array()?;
+                    for material_groups in children {
+                        let material_group = material_groups.array()?;
                         // material[0] - Material Group "MTRL"
                         // material[1] - Material Group Name
                         // material[2..n] - Material Array for Sub Materials
-                        let name = material[1].string()?;
-                        trace!("Material: {}", name);
-                        for (i, sub_materials) in material.iter().enumerate().skip(2) {
+                        let name = material_group[1].string()?;
+                        trace!("Material Group: {}", name);
+                        let mut material_array = vec![];
+                        for (i, sub_materials) in material_group.iter().enumerate().skip(2) {
                             let sub_material = sub_materials.array()?;
                             let highlight = sub_material[5].float()?;
                             // 0 - "SUBMTRL"
@@ -438,24 +441,17 @@ impl BWX {
                                 )
                             } else { ("".into(), "".into()) };
 
-                            let mut texture_index = self.textures.len() as u32;
-
                             let a = self.images.iter()
                                 .position(|x| x.uri.as_ref() == Some(&filename));
                             let texture_index = if a.is_some() {
-                                //debug!("Found duplicate image: {}", filename);
                                 Some(a.unwrap() as u32)
                             } else if tga.len() > 0 {
                                 {
                                     // Convert image from TGA to PNG
                                     let img = image::open(tga.clone())?;
 
-                                    // The dimensions method returns the images width and height.
-                                    println!("dimensions {:?}", img.dimensions());
-
-                                    // The color method returns the image's `ColorType`.
-                                    println!("{:?}", img.color());
-
+                                    // The dimensions and color
+                                    debug!("\tdimensions: {:?}, color: {:?}", img.dimensions(), img.color());
                                     // Write the contents of this image to the Writer in PNG format.
                                     img.save(filename.clone())?;
                                 }
@@ -483,6 +479,11 @@ impl BWX {
                             } else {
                                 None
                             };
+
+
+                            // Store the material id in array for mesh to lookup
+                            let material_id = self.materials.len() as u32;
+                            material_array.push(material_id);
 
                             let material = json::Material {
                                 alpha_cutoff: None,
@@ -517,6 +518,8 @@ impl BWX {
                             trace!("\tSub Material {}: Highlight: {}, File: {}, Orig: {}",
                                 i - 2, highlight, filename, tga);
                         }
+                        // Store current material group in material index
+                        self.material_index.push(material_array);
                     }
                 }
                 // TODO: Parse OBJ2 mesh data from SL1
@@ -662,7 +665,10 @@ impl BWX {
                                     extensions: Default::default(),
                                     extras: Default::default(),
                                     indices: Some(json::Index::new(accessor_index + 3)),
-                                    material: if texture_index < 0 { None } else { Some(json::Index::new(texture_index as u32)) },
+                                    material: if texture_index < 0 { None } else {
+                                        Some(json::Index::new(
+                                            self.material_index[texture_index as usize][sub_texture_index as usize]))
+                                    },
                                     mode: Valid(json::mesh::Mode::Triangles),
                                     targets: None,
                                 };
@@ -760,9 +766,9 @@ impl BWX {
                                             vb.read_f32::<LittleEndian>()?,
                                             vb.read_f32::<LittleEndian>()?,
                                         );
-                                        debug!("---- Vertex: {:?}", v);
-                                        debug!("---- Normal: {:?}", n);
-                                        debug!("--- UV: {:?}",uv);
+                                        // debug!("---- Vertex: {:?}", v);
+                                        // debug!("---- Normal: {:?}", n);
+                                        // debug!("--- UV: {:?}",uv);
                                     }
                                     // End test output text UV
                                 }
@@ -1044,6 +1050,8 @@ impl BWX {
 
         std::fs::write(oname.clone() + ".gltf", j.as_bytes());
         std::fs::write(oname + ".bin", self.buffer.clone());
+
+        // debug!("{:#?}", self.material_index);
 
 
         Ok(())

@@ -488,7 +488,8 @@ impl BWX {
                             let material = json::Material {
                                 alpha_cutoff: None,
                                 alpha_mode: Default::default(),
-                                double_sided: false,
+                                // FIXME: Enable double side material for disordered meshes !!!
+                                double_sided: true,
                                 name: Some(name.clone()),
                                 pbr_metallic_roughness: json::material::PbrMetallicRoughness {
                                     base_color_factor: Default::default(),
@@ -555,7 +556,7 @@ impl BWX {
                         let name = object[1].string()?;
                         let texture_index = object[3].int()?;
                         writeln!(output, "o {}", name)?;
-                        trace!("Object: {}, Index: {}", name, texture_index);
+                        trace!("Object: {}, Texture Index: {}", name, texture_index);
                         // Confirmed: MSHX = clockwise?, MNHX = counter-clockwise?
                         let mut direction = vec![];
                         direction.write_i32::<byteorder::BigEndian>(object[6].int()?)?;
@@ -657,8 +658,8 @@ impl BWX {
                                         let mut map = std::collections::HashMap::new();
                                         map.insert(Valid(json::mesh::Semantic::Positions), json::Index::new(accessor_index));
                                         // FIXME: Something wrong with the normals, might be DirectX clock-wise normal calculation?
-                                        // Disable for now
-                                        //map.insert(Valid(json::mesh::Semantic::Normals), json::Index::new(accessor_index + 1));
+                                        // Don't know how it will be to render in WebGPU, will see later, keep it as ON for now.
+                                        map.insert(Valid(json::mesh::Semantic::Normals), json::Index::new(accessor_index + 1));
                                         map.insert(Valid(json::mesh::Semantic::TexCoords(0)), json::Index::new(accessor_index + 2));
                                         map
                                     },
@@ -778,7 +779,13 @@ impl BWX {
                                 buffer_view.byte_stride = None;
                                 self.buffer_views.push(buffer_view);
 
-                                if direction.starts_with("MSHX") {
+                                // Seems double sided material could solve the problem
+                                // And for HERO PNX, no matter how I change the index order
+                                // The mesh data with normals are incorrect, comment out the following code
+                                // and use only "DOUBLE SIDED" material? MAYBE...
+                                // TODO: Comment out the code or not?!
+                                if (direction.starts_with("MSHX") && !force_no_reorder) || force_reorder
+                                {
                                     // "MSHX", DirectX, left hand clockwise triangles
                                     // Have to be changed to right hand counter-clockwise for OpenGL
                                     // Change (a, b, c) -> <a, c, b>

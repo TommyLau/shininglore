@@ -1,6 +1,7 @@
 use std::io::{Cursor, Read};
 use std::path::Path;
 use std::{mem, fs};
+use std::borrow::Borrow;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use tracing::{debug, error, info, trace, warn};
 use serde::Serialize;
@@ -8,6 +9,7 @@ use cgmath::*;
 use gltf::{Gltf, json::{self, validation::Checked::Valid}, Node, scene::Transform::Matrix};
 use gltf::json::Asset;
 use gltf::texture::{MinFilter, MagFilter, WrappingMode};
+use image::GenericImageView;
 
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -353,6 +355,7 @@ impl BWX {
 
 
         info!("{}", filename.as_ref().display());
+        let oname = filename.as_ref().to_owned();
 
         let data = std::fs::read(filename)?;
         self.content = Cursor::new(data);
@@ -443,6 +446,19 @@ impl BWX {
                                 //debug!("Found duplicate image: {}", filename);
                                 Some(a.unwrap() as u32)
                             } else if tga.len() > 0 {
+                                {
+                                    // Convert image from TGA to PNG
+                                    let img = image::open(tga.clone())?;
+
+                                    // The dimensions method returns the images width and height.
+                                    println!("dimensions {:?}", img.dimensions());
+
+                                    // The color method returns the image's `ColorType`.
+                                    println!("{:?}", img.color());
+
+                                    // Write the contents of this image to the Writer in PNG format.
+                                    img.save(filename.clone())?;
+                                }
                                 let texture_index = self.textures.len() as u32;
                                 let image_index = self.images.len() as u32;
                                 let image = json::Image {
@@ -956,7 +972,11 @@ impl BWX {
 
         // Test obj code
 
-        std::fs::write("test.obj", output)?;
+        // let oname = String::from(filename.as_ref().to_str().unwrap());
+        let oname = oname.to_str().unwrap().to_lowercase();
+        let oname = oname[..oname.rfind('.').unwrap()].to_owned();
+        debug!("{}", oname);
+        std::fs::write(oname.clone() + ".obj", output)?;
 
 
         let buffer = json::Buffer {
@@ -964,7 +984,7 @@ impl BWX {
             extensions: Default::default(),
             extras: Default::default(),
             name: None,
-            uri: Some("test.bin".into()),
+            uri: Some(oname.clone() + ".bin".into()),
         };
 
         let asset = json::Asset {
@@ -1022,8 +1042,8 @@ impl BWX {
         let j = json::serialize::to_string_pretty(&root).expect("OK");
         //debug!("glTF:\n{}", j);
 
-        std::fs::write("test.gltf", j.as_bytes());
-        std::fs::write("test.bin", self.buffer.clone());
+        std::fs::write(oname.clone() + ".gltf", j.as_bytes());
+        std::fs::write(oname + ".bin", self.buffer.clone());
 
 
         Ok(())

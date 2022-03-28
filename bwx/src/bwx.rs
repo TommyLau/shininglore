@@ -450,7 +450,8 @@ impl BWX {
                                 self.images.push(image);
                                 let texture = json::Texture {
                                     name: None,
-                                    sampler: Some(json::Index::new(0)),
+                                    //sampler: Some(json::Index::new(0)),
+                                    sampler: None,
                                     source: json::Index::new(image_index),
                                     extensions: None,
                                     extras: Default::default(),
@@ -970,6 +971,8 @@ impl BWX {
         let scene_nodes: Vec<json::Index<json::Node>> = (0..self.nodes.len() as u32)
             .map(|x| json::Index::new(x)).collect();
 
+        // Disable sampler should display correct texture
+        /*
         let sampler = json::texture::Sampler {
             mag_filter: Some(Valid(MagFilter::Nearest)),
             min_filter: Some(Valid(MinFilter::Nearest)),
@@ -980,6 +983,9 @@ impl BWX {
             extras: Default::default(),
         };
 
+         */
+
+        // NOTICE: Texture should be vertical flipped
         let root = json::Root {
             asset,
             scene: Some(json::Index::new(0)),
@@ -994,7 +1000,7 @@ impl BWX {
             accessors: self.accessors.clone(),
             buffer_views: self.buffer_views.clone(),
             buffers: vec![buffer],
-            samplers: vec![sampler],
+            //samplers: vec![sampler],
             materials: self.materials.clone(),
             textures: self.textures.clone(),
             images: self.images.clone(),

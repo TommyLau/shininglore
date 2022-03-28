@@ -419,15 +419,21 @@ impl BWX {
                             // 6 - Most 0x01
                             // 7 - ???
                             // 8 - Texture Array
-                            let filename = if sub_material.len() > 8 {
+                            let (filename, tga) = if sub_material.len() > 8 {
                                 // Some materials have no texture, such as glass
                                 let texture = sub_material[8].array()?;
                                 // 0 - "TEX"
                                 // 1 - Most 0x00, timer?
                                 // 2 - Filename
-                                let filename = texture[2].string()?;
-                                filename.split('\\').last().unwrap().into()
-                            } else { "".to_string() };
+                                let filename = texture[2].string()?
+                                    .split('\\').last().unwrap().to_owned();
+                                (
+                                    filename.to_lowercase()
+                                        .split('.').next().unwrap()
+                                        .to_owned() + ".png",
+                                    filename.to_owned()
+                                )
+                            } else { ("".into(), "".into()) };
 
                             let mut texture_index = self.textures.len() as u32;
 
@@ -435,8 +441,8 @@ impl BWX {
                                 .position(|x| x.uri.as_ref() == Some(&filename));
                             let texture_index = if a.is_some() {
                                 //debug!("Found duplicate image: {}", filename);
-                                a.unwrap() as u32
-                            } else {
+                                Some(a.unwrap() as u32)
+                            } else if tga.len() > 0 {
                                 let texture_index = self.textures.len() as u32;
                                 let image_index = self.images.len() as u32;
                                 let image = json::Image {
@@ -457,7 +463,9 @@ impl BWX {
                                     extras: Default::default(),
                                 };
                                 self.textures.push(texture);
-                                texture_index
+                                Some(texture_index)
+                            } else {
+                                None
                             };
 
                             let material = json::Material {
@@ -467,12 +475,14 @@ impl BWX {
                                 name: Some(name.clone()),
                                 pbr_metallic_roughness: json::material::PbrMetallicRoughness {
                                     base_color_factor: Default::default(),
-                                    base_color_texture: Some(json::texture::Info {
-                                        index: json::Index::new(texture_index),
-                                        tex_coord: 0,
-                                        extensions: None,
-                                        extras: Default::default(),
-                                    }),
+                                    base_color_texture: if let Some(i) = texture_index {
+                                        Some(json::texture::Info {
+                                            index: json::Index::new(i),
+                                            tex_coord: 0, // Only have texture_0 now
+                                            extensions: None,
+                                            extras: Default::default(),
+                                        })
+                                    } else { None },
                                     metallic_factor: Default::default(),
                                     roughness_factor: Default::default(),
                                     metallic_roughness_texture: None,
@@ -488,7 +498,8 @@ impl BWX {
                             };
                             self.materials.push(material);
 
-                            trace!("\tSub Material {}: Highlight: {}, File: {}", i - 2, highlight, filename);
+                            trace!("\tSub Material {}: Highlight: {}, File: {}, Orig: {}",
+                                i - 2, highlight, filename, tga);
                         }
                     }
                 }
@@ -526,7 +537,7 @@ impl BWX {
                         let texture_index = object[3].int()?;
                         writeln!(output, "o {}", name)?;
                         trace!("Object: {}, Index: {}", name, texture_index);
-                        // TODO: MSHX = clockwise?, MNHX = counter-clockwise?
+                        // Confirmed: MSHX = clockwise?, MNHX = counter-clockwise?
                         let mut direction = vec![];
                         direction.write_i32::<byteorder::BigEndian>(object[6].int()?)?;
                         let direction = std::str::from_utf8(&direction).unwrap();
@@ -710,6 +721,35 @@ impl BWX {
                                 // Index bufferView
                                 buffer_view_index = self.buffer_views.len();
                                 self.buffer.append(&mut vertex_buffer.clone());
+                                // TODO: UV's V is negative value, change to positive and horizontal flip image?
+                                {
+                                    // MEMO: Guessing, the extra two vertex are MIN / MAX
+                                    // Partially confirm with EV_COL3D object, but the coordinate value is incorrect
+                                    // So, just leave it alone as what it is?
+                                    // Test code to output UV texture coordinate
+                                    let mut vb = Cursor::new(vertex_buffer.clone());
+                                    for i in vertex_count / 3..vertex_count / 3 + 2 {
+                                        // Skip Vertex (96) + Normal (96) = 192 = 128 + 64
+                                        let v = (
+                                            vb.read_f32::<LittleEndian>()?,
+                                            vb.read_f32::<LittleEndian>()?,
+                                            vb.read_f32::<LittleEndian>()?,
+                                        );
+                                        let n = (
+                                            vb.read_f32::<LittleEndian>()?,
+                                            vb.read_f32::<LittleEndian>()?,
+                                            vb.read_f32::<LittleEndian>()?,
+                                        );
+                                        let uv = (
+                                            vb.read_f32::<LittleEndian>()?,
+                                            vb.read_f32::<LittleEndian>()?,
+                                        );
+                                        debug!("---- Vertex: {:?}", v);
+                                        debug!("---- Normal: {:?}", n);
+                                        debug!("--- UV: {:?}",uv);
+                                    }
+                                    // End test output text UV
+                                }
                                 buffer_view.buffer = json::Index::new(0);
                                 buffer_view.byte_length = index_buffer.len() as u32;
                                 buffer_view.byte_offset = Some(self.buffer.len() as u32);
@@ -730,12 +770,6 @@ impl BWX {
                                         o_buffer.write_u16::<LittleEndian>(a)?;
                                         o_buffer.write_u16::<LittleEndian>(c)?;
                                         o_buffer.write_u16::<LittleEndian>(b)?;
-                                        /*
-                                        o_buffer.push(a);
-                                        o_buffer.push(c);
-                                        o_buffer.push(b);
-
-                                         */
                                     }
                                     let mut buffer = o_buffer.into_inner();
                                     self.buffer.append(&mut buffer);
@@ -854,6 +888,7 @@ impl BWX {
                                 // [1.0, 1.0, 1.0, -0.0013206453, 0.00029969783, 0.00014250366, 0.002762136]
                                 // Guessing: [1.0, 1.0, 1.0], scale factor ???
                                 // Left another Vec4(-0.0013206453, 0.00029969783, 0.00014250366, 0.002762136), hmm...
+                                //debug!("-------matrix len: {}", mm.len());
                                 let mut buffer = Cursor::new(mm);
                                 /*
                                 let mut f = Vec::new();
@@ -871,7 +906,6 @@ impl BWX {
 
                                  */
                                 let _timeline = buffer.read_u32::<LittleEndian>()?;
-                                //let mmm = Matrix4::new(
                                 let mmm = gltf::scene::Transform::Matrix {
                                     matrix: [[
                                         buffer.read_f32::<LittleEndian>()?,
@@ -896,71 +930,10 @@ impl BWX {
                                     ]]
                                 };
                                 /*
-                                let mmm: [[f32; 4]; 4] = mmm.matrix();
-                                let o_t = cgmath::Vector3 { x: mmm[3][0], y: mmm[3][1], z: mmm[3][2] };
-                                let mmm = gltf::scene::Transform::Matrix { matrix: mmm };
-                                let o_scale = [buffer.read_f32::<LittleEndian>()?, buffer.read_f32::<LittleEndian>()?, buffer.read_f32::<LittleEndian>()?];
-                                let o_rotation = [buffer.read_f32::<LittleEndian>()?, buffer.read_f32::<LittleEndian>()?, buffer.read_f32::<LittleEndian>()?, buffer.read_f32::<LittleEndian>()?];
-                                let o_s = cgmath::Vector3 { x: o_scale[0], y: o_scale[1], z: o_scale[2] };
-                                let mut o_r = cgmath::Quaternion {
-                                    v: cgmath::Vector3 { x: o_rotation[0], y: o_rotation[1], z: o_rotation[2] },
-                                    s: o_rotation[3],
-                                };
-                                o_r = o_r.normalize();
-                                debug!("{:#?} - {:#?} - {:#?}", o_t,o_s,o_r);
-                                let t = cgmath::Matrix4::from_translation(o_t);
-                                let r = cgmath::Matrix4::from(o_r);
-                                let s = cgmath::Matrix4::from_nonuniform_scale(o_s.x, o_s.y, o_s.z);
-                                // //debug!("T: {:#?}", t);
-                                //debug!("R: {:#?}", r);
-                                //debug!("S: {:#?}", r);
-                                let x = t * r * s;
-
-                                debug!("Calculated Matrix: {:#?}", x);
-                                 */
-                                //debug!("My calc: {:#?}", x);
-                                //debug!("orig_scale: {:#?}", o_scale);
-                                //debug!("orig_rotation: {:#?}", o_rotation);
-                                // debug!("Matrix: {:#?}", mmm);
-                                let m4 = mmm.matrix();
-                                let m3 = Matrix3 {
-                                    x: Vector3 { x: m4[0][0], y: m4[0][1], z: m4[0][2] },
-                                    y: Vector3 { x: m4[1][0], y: m4[1][1], z: m4[1][2] },
-                                    z: Vector3 { x: m4[2][0], y: m4[2][1], z: m4[2][2] },
-                                };
-                                //debug!("M3: {:#?}", m3);
-                                let sx = m3.x.magnitude();
-                                let sy = m3.y.magnitude();
-                                let sz = m3.z.magnitude() * m3.determinant().signum();
-                                let t_s = [sx, sy, sz];
-                                // debug!("T_S: {:#?}", t_s);
-                                let nx = m3.x * 1.0 / sx;
-                                let ny = m3.y * 1.0 / sy;
-                                let nz = m3.z * 1.0 / sz;
-                                let nr = Matrix3 { x: nx, y: ny, z: nz };
-                                //debug!("N_R: {:#?}", nr);
-                                let mut t_r = Quaternion::from(nr);
-                                // debug!("T_R: {:#?}", t_r);
-                                let t_t = Vector3 { x: m4[3][0], y: m4[3][1], z: m4[3][2] };
-                                // debug!("T_T: {:#?}", t_t);
-                                let t = Matrix4::from_translation(t_t);
-                                let r = Matrix4::from(t_r);
-                                let s = Matrix4::from_nonuniform_scale(sx, sy, sz);
-                                let x = t * r * s;
-                                // debug!("My Calc: {:#?}", x);
-                                let mmm = gltf::scene::Transform::Matrix { matrix: m4 };
-                                let (translation, rotation, scale) = mmm.decomposed();
-                                // debug!("t: {:#?}", translation);
-                                // debug!("r: {:#?}", rotation);
-                                // debug!("s: {:#?}", scale);
-                                let decomposed = gltf::scene::Transform::Decomposed { translation, rotation, scale };
-                                let matrix = decomposed.matrix();
-                                // debug!("new matrix: {:#?}", matrix);
-                                // debug!("origin matrix: {:#?}", m4);
-
-
                                 // TODO: Update logic here, processing only one matrix right now
                                 break;
+
+                                 */
                             }
                         }
                         // SFX Blocks?

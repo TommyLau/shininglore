@@ -132,6 +132,7 @@ pub struct BWX {
     materials: Vec<json::Material>,
     // Store the material group information
     material_index: Vec<Vec<u32>>,
+    node_index: Vec<u32>,
 }
 
 pub fn print_matrix<T>(m: &Matrix4<T>)
@@ -459,7 +460,11 @@ impl BWX {
                                     // The dimensions and color
                                     debug!("\tdimensions: {:?}, color: {:?}", img.dimensions(), img.color());
                                     // Write the contents of this image to the Writer in PNG format.
-                                    img.save(filename.clone())?;
+                                    if !Path::new(&filename).exists() {
+                                        img.save(filename.clone())?;
+                                    } else {
+                                        debug!("\tImage file {} exists, no convert", filename);
+                                    }
                                 }
                                 let texture_index = self.textures.len() as u32;
                                 let image_index = self.images.len() as u32;
@@ -597,6 +602,7 @@ impl BWX {
                             )
                         };
                         //debug!("{:#?}", matrix);
+                        let mut node_index = vec![];
                         // ========================================
                         // Meshes
                         let meshes = object[7].array()?;
@@ -616,7 +622,10 @@ impl BWX {
                             trace!("\tMesh: [Texture Index: {}, Index Count: {}, Size: {}",
                                 sub_texture_index, index_count, index_buffer.len());
                             let blocks = mesh[2].array()?;
-                            for vertices in blocks {
+                            // for vertices in blocks {
+                            // FIXME: Only process the first frame of the animation
+                            let vertices = &blocks[0];
+                            {
                                 let vertex = vertices.array()?;
                                 // 0 - "DXMESHF"
                                 // 1 - VB Timer
@@ -636,20 +645,16 @@ impl BWX {
                                 let accessor_index = self.accessors.len() as u32;
                                 let mesh_index = self.meshes.len() as u32;
 
-                                let node_matrix = [
-                                    matrix.x.x, matrix.x.y, matrix.x.z, matrix.x.w,
-                                    matrix.y.x, matrix.y.y, matrix.y.z, matrix.y.w,
-                                    matrix.z.x, matrix.z.y, matrix.z.z, matrix.z.w,
-                                    matrix.w.x, matrix.w.y, matrix.w.z, matrix.w.w,
-                                ];
+                                // Store the children
+                                node_index.push(self.nodes.len() as u32);
                                 let node = json::Node {
                                     camera: None,
                                     children: None,
                                     extensions: Default::default(),
                                     extras: Default::default(),
-                                    matrix: Some(node_matrix),
+                                    matrix: None,
                                     mesh: Some(json::Index::new(mesh_index)),
-                                    name: Some(name.clone().into()),
+                                    name: None,
                                     rotation: None,
                                     scale: None,
                                     translation: None,
@@ -683,7 +688,9 @@ impl BWX {
                                 let mesh = json::Mesh {
                                     extensions: Default::default(),
                                     extras: Default::default(),
-                                    name: Some(name.clone().into()),
+                                    // name: Some(name.clone().into()),
+                                    // As a mesh group, no name is giving to the mesh but the object
+                                    name: None,
                                     primitives: vec![primitive],
                                     weights: None,
                                 };
@@ -790,28 +797,28 @@ impl BWX {
                                 // The mesh data with normals are incorrect, comment out the following code
                                 // and use only "DOUBLE SIDED" material? MAYBE...
                                 // TODO: Comment out the code or not?!
-                                if direction.starts_with("MSHX") {
-                                    // "MSHX", DirectX, left hand clockwise triangles
-                                    // Have to be changed to right hand counter-clockwise for OpenGL
-                                    // Change (a, b, c) -> <a, c, b>
-                                    debug!("------ changing order ------");
-                                    let mut i_buffer = Cursor::new(index_buffer);
-                                    let mut o_buffer = Cursor::new(vec![]);
-                                    for _i in 0..index_count / 3 {
-                                        let a = i_buffer.read_u16::<LittleEndian>()?;
-                                        let b = i_buffer.read_u16::<LittleEndian>()?;
-                                        let c = i_buffer.read_u16::<LittleEndian>()?;
-                                        o_buffer.write_u16::<LittleEndian>(a)?;
-                                        o_buffer.write_u16::<LittleEndian>(c)?;
-                                        o_buffer.write_u16::<LittleEndian>(b)?;
-                                    }
-                                    let mut buffer = o_buffer.into_inner();
-                                    self.buffer.append(&mut buffer);
-                                    // End order changing
-                                } else {
-                                    // Original order, store to binary directly
-                                    self.buffer.append(&mut index_buffer.clone());
-                                }
+                                // if direction.starts_with("MSHX") {
+                                //     // "MSHX", DirectX, left hand clockwise triangles
+                                //     // Have to be changed to right hand counter-clockwise for OpenGL
+                                //     // Change (a, b, c) -> <a, c, b>
+                                //     debug!("------ changing order ------");
+                                //     let mut i_buffer = Cursor::new(index_buffer);
+                                //     let mut o_buffer = Cursor::new(vec![]);
+                                //     for _i in 0..index_count / 3 {
+                                //         let a = i_buffer.read_u16::<LittleEndian>()?;
+                                //         let b = i_buffer.read_u16::<LittleEndian>()?;
+                                //         let c = i_buffer.read_u16::<LittleEndian>()?;
+                                //         o_buffer.write_u16::<LittleEndian>(a)?;
+                                //         o_buffer.write_u16::<LittleEndian>(c)?;
+                                //         o_buffer.write_u16::<LittleEndian>(b)?;
+                                //     }
+                                //     let mut buffer = o_buffer.into_inner();
+                                //     self.buffer.append(&mut buffer);
+                                //     // End order changing
+                                // } else {
+                                // Original order, store to binary directly
+                                self.buffer.append(&mut index_buffer.clone());
+                                // }
 
                                 // Test
                                 let mut v_buffer = Cursor::new(vertex_buffer);
@@ -897,6 +904,32 @@ impl BWX {
                                 // End test
                             }
                         }
+                        let node_matrix = [
+                            matrix.x.x, matrix.x.y, matrix.x.z, matrix.x.w,
+                            matrix.y.x, matrix.y.y, matrix.y.z, matrix.y.w,
+                            matrix.z.x, matrix.z.y, matrix.z.z, matrix.z.w,
+                            matrix.w.x, matrix.w.y, matrix.w.z, matrix.w.w,
+                        ];
+
+                        // Store the node for Scene
+                        let mesh_node = self.meshes.len() as u32;
+                        self.node_index.push(mesh_node);
+                        let node = json::Node {
+                            camera: None,
+                            children: Some(node_index.into_iter().map(|x| json::Index::new(x)).collect()),
+                            extensions: Default::default(),
+                            extras: Default::default(),
+                            matrix: Some(node_matrix),
+                            mesh: None,
+                            name: Some(name.into()),
+                            rotation: None,
+                            scale: None,
+                            translation: None,
+                            skin: None,
+                            weights: None,
+                        };
+                        self.nodes.push(node);
+
                         // Matrices
                         let matrices = object[8].array()?;
                         for matrix_array in matrices {
@@ -1015,8 +1048,10 @@ impl BWX {
         };
 
         //let a: Vec<json::Index<Node>> = (0..10u32).map(|x| json::Index::new(x)).colletc();
-        let scene_nodes: Vec<json::Index<json::Node>> = (0..self.nodes.len() as u32)
-            .map(|x| json::Index::new(x)).collect();
+        // let scene_nodes: Vec<json::Index<json::Node>> = (0..self.nodes.len() as u32)
+        //     .map(|x| json::Index::new(x)).collect();
+        let scene_nodes = self.node_index.iter()
+            .map(|x| json::Index::new(*x)).collect();
 
         // Disable sampler should display correct texture
         /*

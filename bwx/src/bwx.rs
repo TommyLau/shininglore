@@ -134,6 +134,8 @@ pub struct BWX {
     material_index: Vec<Vec<u32>>,
     node_index: Vec<u32>,
     animations: Vec<json::Animation>,
+    samplers: Vec<json::animation::Sampler>,
+    channels: Vec<json::animation::Channel>,
 }
 
 pub fn print_matrix<T>(m: &Matrix4<T>)
@@ -1154,7 +1156,8 @@ impl BWX {
 
 
                             // Samplers
-                            let mut samplers = vec![];
+                            // let mut samplers = vec![];
+                            let sampler_index = self.samplers.len() as u32;
                             // Samplers - Translation
                             let mut sampler = json::animation::Sampler {
                                 extensions: None,
@@ -1163,19 +1166,19 @@ impl BWX {
                                 interpolation: Valid(json::animation::Interpolation::Linear),
                                 output: json::Index::new(accessor_index as u32 + 1),
                             };
-                            samplers.push(sampler.clone());
+                            self.samplers.push(sampler.clone());
                             // Samplers - Rotation
                             sampler.output = json::Index::new(accessor_index as u32 + 2);
-                            samplers.push(sampler.clone());
+                            self.samplers.push(sampler.clone());
                             // Samplers - Scale
                             sampler.output = json::Index::new(accessor_index as u32 + 3);
-                            samplers.push(sampler);
+                            self.samplers.push(sampler);
 
                             // Channels
-                            let mut channels = vec![];
+                            // let mut channels = vec![];
                             // Channel - Translation
                             let mut channel = json::animation::Channel {
-                                sampler: json::Index::new(0),
+                                sampler: json::Index::new(sampler_index),
                                 target: json::animation::Target {
                                     extensions: None,
                                     extras: Default::default(),
@@ -1185,23 +1188,23 @@ impl BWX {
                                 extensions: None,
                                 extras: Default::default(),
                             };
-                            channels.push(channel.clone());
+                            self.channels.push(channel.clone());
                             // Channel - Rotation
-                            channel.sampler = json::Index::new(1);
+                            channel.sampler = json::Index::new(sampler_index + 1);
                             channel.target.path = Valid(json::animation::Property::Rotation);
-                            channels.push(channel.clone());
+                            self.channels.push(channel.clone());
                             // Channel - Scale
-                            channel.sampler = json::Index::new(2);
+                            channel.sampler = json::Index::new(sampler_index + 2);
                             channel.target.path = Valid(json::animation::Property::Scale);
-                            channels.push(channel);
+                            self.channels.push(channel);
 
-                            self.animations.push(json::Animation {
-                                extensions: None,
-                                extras: Default::default(),
-                                channels,
-                                name: Some(name.clone() + "_Animation"),
-                                samplers,
-                            });
+                            // self.animations.push(json::Animation {
+                            //     extensions: None,
+                            //     extras: Default::default(),
+                            //     channels,
+                            //     name: Some(name.clone() + "_Animation"),
+                            //     samplers,
+                            // });
 
                             // TODO: Add accessors for Translation / Rotation / Scale
                             // UPDATE ABOVE! 2022-03-30
@@ -1289,7 +1292,13 @@ impl BWX {
             materials: self.materials.clone(),
             textures: self.textures.clone(),
             images: self.images.clone(),
-            animations: self.animations.clone(),
+            animations: vec![json::Animation {
+                extensions: None,
+                extras: Default::default(),
+                channels: self.channels.clone(),
+                name: Some("Animation".into()),
+                samplers: self.samplers.clone(),
+            }],
             ..Default::default()
         };
 

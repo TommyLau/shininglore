@@ -1,4 +1,4 @@
-use std::io::{Cursor, Read};
+use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::Path;
 use std::{mem, fs};
 use std::borrow::Borrow;
@@ -10,7 +10,7 @@ use gltf::{Gltf, json::{self, validation::Checked::Valid}, Node, scene::Transfor
 use gltf::json::Asset;
 use gltf::texture::{MinFilter, MagFilter, WrappingMode};
 use image::GenericImageView;
-
+use serde_json::json;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -568,6 +568,14 @@ impl BWX {
                         let texture_index = object[3].int()?;
                         writeln!(output, "o {}", name)?;
                         trace!("Object: {}, Texture Index: {}", name, texture_index);
+
+                        {
+                            // Do not process special object starts with EV_ / EP_
+                            if name.starts_with("EV_") || name.starts_with("EP_") {
+                                continue;
+                            }
+                        }
+
                         // Confirmed: MSHX = clockwise?, MNHX = counter-clockwise?
                         let mut direction = vec![];
                         direction.write_i32::<byteorder::BigEndian>(object[6].int()?)?;
@@ -616,11 +624,26 @@ impl BWX {
                             let sub_texture_index = mesh[1].int()?;
                             let index_count = mesh[3].int()?;
                             let index_buffer = mesh[4].data()?;
-                            if index_buffer.len() != index_count as usize * 2 {
+                            let index_buffer_length = index_buffer.len();
+                            if index_buffer_length != index_count as usize * 2 {
                                 error!("Index block size incorrect!");
                             }
                             trace!("\tMesh: [Texture Index: {}, Index Count: {}, Size: {}",
                                 sub_texture_index, index_count, index_buffer.len());
+                            debug!("Before Padding Length: {}", index_buffer.len());
+                            let mut index_buffer = Cursor::new(index_buffer.clone());
+                            // Padding to four bytes
+                            let padding = ((index_buffer_length + 3) & !3) - index_buffer_length;
+                            if padding > 0 {
+                                debug!("============Padding: {}", padding);
+                                index_buffer.seek(SeekFrom::End(0))?;
+                                for _ in 0..padding {
+                                    index_buffer.write_u8(0)?;
+                                }
+                            }
+                            let index_buffer = index_buffer.into_inner();
+                            debug!("After Padding Length: {}", index_buffer.len());
+
                             let blocks = mesh[2].array()?;
                             // for vertices in blocks {
                             // FIXME: Only process the first frame of the animation
@@ -912,8 +935,10 @@ impl BWX {
                         ];
 
                         // Store the node for Scene
-                        let mesh_node = self.meshes.len() as u32;
-                        self.node_index.push(mesh_node);
+                        let node_count = self.nodes.len() as u32;
+                        debug!("mesh_node: {:#?}", node_count);
+                        debug!("node_index: {:?}", node_index);
+                        self.node_index.push(node_count);
                         let node = json::Node {
                             camera: None,
                             children: Some(node_index.into_iter().map(|x| json::Index::new(x)).collect()),
@@ -921,7 +946,7 @@ impl BWX {
                             extras: Default::default(),
                             matrix: Some(node_matrix),
                             mesh: None,
-                            name: Some(name.into()),
+                            name: Some(name.clone().into()),
                             rotation: None,
                             scale: None,
                             translation: None,
@@ -937,7 +962,9 @@ impl BWX {
                             // 0 - "MATRIX"
                             // 1..n - Matrix
                             // TODO: Parse matrix later
-                            trace!("\tMatrix: [Length: {}]", matrix.len() -1);
+                            trace!("\tMatrix: [Length: {}]", matrix.len() - 1);
+                            let mut o_buffer = Cursor::new(vec![]);
+                            let mut timeline_max = 0.0;
                             for m in matrix.iter().skip(1) {
                                 let mm = m.data()?;
                                 // 0 - Timeline, based on 160, in u32
@@ -957,22 +984,7 @@ impl BWX {
                                 // Left another Vec4(-0.0013206453, 0.00029969783, 0.00014250366, 0.002762136), hmm...
                                 //debug!("-------matrix len: {}", mm.len());
                                 let mut buffer = Cursor::new(mm);
-                                /*
-                                let mut f = Vec::new();
-                                for i in 1..17 {
-                                    //for i in 0..mm.len() / 4 {
-                                    // if i == 0 {
-                                    //     let a = buffer.read_u32::<littleendian>()?;
-                                    //     //debug!("{}", a);
-                                    // } else {
-                                    let a = buffer.read_f32::<LittleEndian>()?;
-                                    //debug!("{}", a);
-                                    f.push(a);
-                                    //}
-                                }
-
-                                 */
-                                let _timeline = buffer.read_u32::<LittleEndian>()?;
+                                let timeline = buffer.read_u32::<LittleEndian>()? as f32 / 3600.0;
                                 let mmm = gltf::scene::Transform::Matrix {
                                     matrix: [[
                                         buffer.read_f32::<LittleEndian>()?,
@@ -996,12 +1008,66 @@ impl BWX {
                                         buffer.read_f32::<LittleEndian>()?,
                                     ]]
                                 };
+                                let (translation, rotation, scale) = mmm.decomposed();
+                                debug!("T: {:.2}, {:?}, {:?}, {:?}", timeline, translation, rotation, scale);
+                                // Write timeline, translation, rotation and scale to buffer
+                                // Could use system's array.as_bytes, but cannot ensure when running on big endian system
+                                // So use the old school byteorder method
+                                o_buffer.write_f32::<LittleEndian>(timeline)?;
+                                for v in translation { o_buffer.write_f32::<LittleEndian>(v)?; }
+                                for v in rotation { o_buffer.write_f32::<LittleEndian>(v)?; }
+                                for v in scale { o_buffer.write_f32::<LittleEndian>(v)?; }
+
+                                if timeline > timeline_max {
+                                    timeline_max = timeline;
+                                }
                                 /*
                                 // TODO: Update logic here, processing only one matrix right now
                                 break;
 
                                  */
                             }
+                            // Store data in buffer
+                            let offset = self.buffer.len();
+                            let length = o_buffer.get_ref().len();
+                            self.buffer.append(o_buffer.get_mut());
+
+                            // Prepare bufferView
+                            let buffer_view_index = self.buffer_views.len();
+                            let buffer_view = json::buffer::View {
+                                buffer: json::Index::new(0),
+                                byte_length: length as u32,
+                                byte_offset: Some(offset as u32),
+                                byte_stride: Some((mem::size_of::<f32>() * 11) as u32),
+                                name: Some(name.clone() + "_Matrix"),
+                                target: None,
+                                extensions: None,
+                                extras: Default::default(),
+                            };
+                            self.buffer_views.push(buffer_view);
+
+                            // Accessor
+                            let accessor_index = self.accessors.len();
+                            let accessor = json::Accessor {
+                                buffer_view: Some(json::Index::new(buffer_view_index as u32)),
+                                byte_offset: 0,
+                                count: matrix.len() as u32 - 1,
+                                component_type: Valid(json::accessor::GenericComponentType(
+                                    json::accessor::ComponentType::F32)),
+                                extensions: None,
+                                extras: Default::default(),
+                                type_: Valid(json::accessor::Type::Scalar),
+                                min: Some(json!([0.0f32])),
+                                max: Some(json!([timeline_max])),
+                                name: Some(name.clone() + "_Timeline"),
+                                normalized: false,
+                                sparse: None,
+                            };
+                            self.accessors.push(accessor);
+                            debug!("bufferView: {}", buffer_view_index);
+
+                            // TODO: Add accessors for Translation / Rotation / Scale
+                            // UPDATE ABOVE! 2022-03-30
                         }
                         // SFX Blocks?
                         if object.len() > 9 {

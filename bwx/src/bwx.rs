@@ -720,6 +720,46 @@ impl BWX {
                                 self.meshes.push(mesh);
 
                                 // Vertex
+                                let mut v_min = cgmath::Vector3::new(0.0f32, 0.0, 0.0);
+                                let mut v_max = cgmath::Vector3::new(0.0f32, 0.0, 0.0);
+                                let mut v_set = false;
+                                {
+                                    // TODO: Clean up code
+                                    // Calculate min / max for position
+                                    let mut vb = Cursor::new(vertex_buffer.clone());
+                                    for i in 0..vertex_count / 3 {
+                                        let v = cgmath::Vector3::new(
+                                            vb.read_f32::<LittleEndian>()?,
+                                            vb.read_f32::<LittleEndian>()?,
+                                            vb.read_f32::<LittleEndian>()?,
+                                        );
+                                        let n = (
+                                            vb.read_f32::<LittleEndian>()?,
+                                            vb.read_f32::<LittleEndian>()?,
+                                            vb.read_f32::<LittleEndian>()?,
+                                        );
+                                        let uv = (
+                                            vb.read_f32::<LittleEndian>()?,
+                                            vb.read_f32::<LittleEndian>()?,
+                                        );
+                                        if v_set {
+                                            //debug!("Min Max: {:?} - {:?} - {:?}", v, v_min, v_max);
+                                            if v.x > v_max.x { v_max.x = v.x; }
+                                            if v.y > v_max.y { v_max.y = v.y; }
+                                            if v.z > v_max.z { v_max.z = v.z; }
+                                            if v.x < v_min.x { v_min.x = v.x; }
+                                            if v.y < v_min.y { v_min.y = v.y; }
+                                            if v.z < v_min.z { v_min.z = v.z; }
+                                        } else {
+                                            v_min = v;
+                                            v_max = v;
+                                            v_set = true;
+                                        }
+                                    }
+                                    debug!("Min = {:?}, Max = {:?}", v_min, v_max);
+                                }
+                                let v_min: [f32; 3] = v_min.into();
+                                let v_max: [f32; 3] = v_max.into();
                                 let mut accessor = json::Accessor {
                                     buffer_view: Some(json::Index::new(buffer_view_index as u32)),
                                     byte_offset: 0,
@@ -730,8 +770,8 @@ impl BWX {
                                     extensions: None,
                                     extras: Default::default(),
                                     type_: Valid(json::accessor::Type::Vec3),
-                                    min: None,
-                                    max: None,
+                                    min: Some(json!(v_min)),
+                                    max: Some(json!(v_max)),
                                     name: None,
                                     normalized: false,
                                     sparse: None,
@@ -739,6 +779,8 @@ impl BWX {
                                 self.accessors.push(accessor.clone());
                                 // Normal
                                 accessor.byte_offset = (3 * mem::size_of::<f32>()) as u32;
+                                accessor.min = None;
+                                accessor.max = None;
                                 self.accessors.push(accessor.clone());
                                 // Texture Coordinate
                                 accessor.byte_offset = (6 * mem::size_of::<f32>()) as u32;

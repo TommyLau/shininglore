@@ -133,6 +133,7 @@ pub struct BWX {
     // Store the material group information
     material_index: Vec<Vec<u32>>,
     node_index: Vec<u32>,
+    animations: Vec<json::Animation>,
 }
 
 pub fn print_matrix<T>(m: &Matrix4<T>)
@@ -1088,12 +1089,13 @@ impl BWX {
                             };
                             self.buffer_views.push(buffer_view);
 
-                            // Accessor
+                            let animation_count = matrix.len() as u32 - 1;
+                            // Accessor for timeline
                             let accessor_index = self.accessors.len();
                             let accessor = json::Accessor {
                                 buffer_view: Some(json::Index::new(buffer_view_index as u32)),
                                 byte_offset: 0,
-                                count: matrix.len() as u32 - 1,
+                                count: animation_count,
                                 component_type: Valid(json::accessor::GenericComponentType(
                                     json::accessor::ComponentType::F32)),
                                 extensions: None,
@@ -1107,6 +1109,85 @@ impl BWX {
                             };
                             self.accessors.push(accessor);
                             debug!("bufferView: {}", buffer_view_index);
+
+                            // Accessor for Translation
+                            let mut accessor = json::Accessor {
+                                buffer_view: Some(json::Index::new(buffer_view_index as u32)),
+                                byte_offset: 1 * mem::size_of::<f32>() as u32,
+                                count: animation_count,
+                                component_type: Valid(json::accessor::GenericComponentType(
+                                    json::accessor::ComponentType::F32)),
+                                extensions: None,
+                                extras: Default::default(),
+                                type_: Valid(json::accessor::Type::Vec3),
+                                min: None,
+                                max: None,
+                                name: Some(name.clone() + "_Translation"),
+                                normalized: false,
+                                sparse: None,
+                            };
+                            self.accessors.push(accessor.clone());
+                            // Accessor for Rotation
+                            accessor.byte_offset = (1 + 3) * mem::size_of::<f32>() as u32;
+                            accessor.type_ = Valid(json::accessor::Type::Vec4);
+                            accessor.name = Some(name.clone() + "_Rotation");
+                            self.accessors.push(accessor.clone());
+                            // Accessor for Scale
+                            accessor.byte_offset = (1 + 3 + 4) * mem::size_of::<f32>() as u32;
+                            accessor.type_ = Valid(json::accessor::Type::Vec3);
+                            accessor.name = Some(name.clone() + "_Scale");
+                            self.accessors.push(accessor);
+
+
+                            // Samplers
+                            let mut samplers = vec![];
+                            // Samplers - Translation
+                            let mut sampler = json::animation::Sampler {
+                                extensions: None,
+                                extras: Default::default(),
+                                input: json::Index::new(accessor_index as u32),
+                                interpolation: Valid(json::animation::Interpolation::Linear),
+                                output: json::Index::new(accessor_index as u32 + 1),
+                            };
+                            samplers.push(sampler.clone());
+                            // Samplers - Rotation
+                            sampler.output = json::Index::new(accessor_index as u32 + 2);
+                            samplers.push(sampler.clone());
+                            // Samplers - Scale
+                            sampler.output = json::Index::new(accessor_index as u32 + 3);
+                            samplers.push(sampler);
+
+                            // Channels
+                            let mut channels = vec![];
+                            // Channel - Translation
+                            let mut channel = json::animation::Channel {
+                                sampler: json::Index::new(0),
+                                target: json::animation::Target {
+                                    extensions: None,
+                                    extras: Default::default(),
+                                    node: json::Index::new(node_count),
+                                    path: Valid(json::animation::Property::Translation),
+                                },
+                                extensions: None,
+                                extras: Default::default(),
+                            };
+                            channels.push(channel.clone());
+                            // Channel - Rotation
+                            channel.sampler = json::Index::new(1);
+                            channel.target.path = Valid(json::animation::Property::Rotation);
+                            channels.push(channel.clone());
+                            // Channel - Scale
+                            channel.sampler = json::Index::new(2);
+                            channel.target.path = Valid(json::animation::Property::Scale);
+                            channels.push(channel);
+
+                            self.animations.push(json::Animation {
+                                extensions: None,
+                                extras: Default::default(),
+                                channels,
+                                name: Some(name.clone() + "_Animation"),
+                                samplers,
+                            });
 
                             // TODO: Add accessors for Translation / Rotation / Scale
                             // UPDATE ABOVE! 2022-03-30
@@ -1194,6 +1275,7 @@ impl BWX {
             materials: self.materials.clone(),
             textures: self.textures.clone(),
             images: self.images.clone(),
+            animations: self.animations.clone(),
             ..Default::default()
         };
 

@@ -591,24 +591,29 @@ impl BWX {
                             let matrix = object[8].array()?[0].array()?[1].data()?;
                             let mut buffer = Cursor::new(matrix);
                             let _timeline = buffer.read_u32::<LittleEndian>()?;
-                            Matrix4::new(
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                            )
+                            gltf::scene::Transform::Matrix {
+                                matrix: [[
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                ], [
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                ], [
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                ], [
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                ]]
+                            }
                         };
                         //debug!("{:#?}", matrix);
                         let mut node_index = vec![];
@@ -910,10 +915,12 @@ impl BWX {
                                     //writeln!(output, "v {} {} {}", t.x, t.z, -t.y)?;
                                     // Method 2, rotate -90 degrees along x-axis
                                     let rot = Matrix4::from_angle_x(Rad(-90.0f32.to_radians()));
-                                    let t = rot * matrix * vv;
-                                    writeln!(output, "v {} {} {}", t.x, t.y, t.z)?;
+                                    // let t = rot * matrix * vv;
+                                    // writeln!(output, "v {} {} {}", t.x, t.y, t.z)?;
+                                    writeln!(output, "v {} {} {}", x, y, z)?;
                                     // End Blender rotation
-                                    let position = [t.x, t.y, t.z];
+                                    // let position = [t.x, t.y, t.z];
+                                    let position = [x, y, z];
                                     v.push(position);
                                     let normal = [
                                         v_buffer.read_f32::<LittleEndian>()?,
@@ -970,12 +977,18 @@ impl BWX {
                                 // End test
                             }
                         }
+                        // Node matrix doesn't support animation, decompose to TRS
+                        /*
                         let node_matrix = [
                             matrix.x.x, matrix.x.y, matrix.x.z, matrix.x.w,
                             matrix.y.x, matrix.y.y, matrix.y.z, matrix.y.w,
                             matrix.z.x, matrix.z.y, matrix.z.z, matrix.z.w,
                             matrix.w.x, matrix.w.y, matrix.w.z, matrix.w.w,
                         ];
+
+                         */
+                        let (translation, rotation, scale) = matrix.decomposed();
+
 
                         // Store the node for Scene
                         let node_count = self.nodes.len() as u32;
@@ -987,12 +1000,13 @@ impl BWX {
                             children: Some(node_index.into_iter().map(|x| json::Index::new(x)).collect()),
                             extensions: Default::default(),
                             extras: Default::default(),
-                            matrix: Some(node_matrix),
+                            // matrix: Some(node_matrix),
+                            matrix: None,
                             mesh: None,
                             name: Some(name.clone().into()),
-                            rotation: None,
-                            scale: None,
-                            translation: None,
+                            rotation: Some(json::scene::UnitQuaternion(rotation)),
+                            scale: Some(scale),
+                            translation: Some(translation),
                             skin: None,
                             weights: None,
                         };

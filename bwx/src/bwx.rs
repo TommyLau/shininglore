@@ -230,7 +230,7 @@ impl BWX {
         let x = t * r * s;
 
         debug!("Matrix:");
-        let mm = Matrix4::from(m);
+        let mm = Maxtrix4::from(m);
         print_matrix(&mm);
         debug!("Calculated Matrix:");
         print_matrix(&x);
@@ -458,7 +458,7 @@ impl BWX {
                             } else if tga.len() > 0 {
                                 {
                                     // Convert image from TGA to PNG
-                                    let img = image::open(tga.clone())?;
+                                    let img = image::open(tga.clone())?.flipv();
 
                                     // The dimensions and color
                                     debug!("\tdimensions: {:?}, color: {:?}", img.dimensions(), img.color());
@@ -593,29 +593,26 @@ impl BWX {
                             let matrix = object[8].array()?[0].array()?[1].data()?;
                             let mut buffer = Cursor::new(matrix);
                             let _timeline = buffer.read_u32::<LittleEndian>()?;
-                            gltf::scene::Transform::Matrix {
-                                matrix: [[
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                ], [
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                ], [
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                ], [
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                ]]
-                            }
+                            // cgmath::Matrix4::new(
+                            [
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                buffer.read_f32::<LittleEndian>()?,
+                                // )
+                            ]
                         };
                         //debug!("{:#?}", matrix);
                         let mut node_index = vec![];
@@ -694,7 +691,7 @@ impl BWX {
                                 };
                                 self.nodes.push(node);
 
-                                // Mesh - Perimitive
+                                // Mesh - Primitive
                                 let primitive = json::mesh::Primitive {
                                     attributes: {
                                         let mut map = std::collections::HashMap::new();
@@ -731,25 +728,37 @@ impl BWX {
                                 let mut v_min = cgmath::Vector3::new(0.0f32, 0.0, 0.0);
                                 let mut v_max = cgmath::Vector3::new(0.0f32, 0.0, 0.0);
                                 let mut v_set = false;
+                                let mut o_buffer = Cursor::new(vec![]);
                                 {
                                     // TODO: Clean up code
                                     // Calculate min / max for position
                                     let mut vb = Cursor::new(vertex_buffer.clone());
-                                    for i in 0..vertex_count / 3 {
+                                    for i in 0..vertex_count {
                                         let v = cgmath::Vector3::new(
                                             vb.read_f32::<LittleEndian>()?,
                                             vb.read_f32::<LittleEndian>()?,
                                             vb.read_f32::<LittleEndian>()?,
                                         );
-                                        let n = (
-                                            vb.read_f32::<LittleEndian>()?,
-                                            vb.read_f32::<LittleEndian>()?,
-                                            vb.read_f32::<LittleEndian>()?,
-                                        );
-                                        let uv = (
-                                            vb.read_f32::<LittleEndian>()?,
-                                            vb.read_f32::<LittleEndian>()?,
-                                        );
+                                        // Convert to Blender Coordinates
+                                        o_buffer.write_f32::<LittleEndian>(v.x)?;
+                                        o_buffer.write_f32::<LittleEndian>(-v.z)?;
+                                        o_buffer.write_f32::<LittleEndian>(v.y)?;
+                                        let n = cgmath::Vector3 {
+                                            x: vb.read_f32::<LittleEndian>()?,
+                                            y: vb.read_f32::<LittleEndian>()?,
+                                            z: vb.read_f32::<LittleEndian>()?,
+                                        };
+                                        // Convert to Blender Coordinates
+                                        o_buffer.write_f32::<LittleEndian>(n.x)?;
+                                        o_buffer.write_f32::<LittleEndian>(-n.z)?;
+                                        o_buffer.write_f32::<LittleEndian>(n.y)?;
+                                        let uv = cgmath::Vector2 {
+                                            x: vb.read_f32::<LittleEndian>()?,
+                                            y: vb.read_f32::<LittleEndian>()?,
+                                        };
+                                        // Convert texture mapping to [0, 1]
+                                        o_buffer.write_f32::<LittleEndian>(uv.x)?;
+                                        o_buffer.write_f32::<LittleEndian>(-uv.y)?;
                                         if v_set {
                                             //debug!("Min Max: {:?} - {:?} - {:?}", v, v_min, v_max);
                                             if v.x > v_max.x { v_max.x = v.x; }
@@ -795,9 +804,11 @@ impl BWX {
                                 accessor.type_ = Valid(json::accessor::Type::Vec2);
                                 self.accessors.push(accessor.clone());
 
+                                debug!("o_buffer len: {}, vcount: {}", o_buffer.get_ref().len(), vertex_count);
                                 let mut buffer_view = json::buffer::View {
                                     buffer: json::Index::new(0),
-                                    byte_length: vertex_buffer.len() as u32,
+                                    // byte_length: vertex_buffer.len() as u32,
+                                    byte_length: o_buffer.get_ref().len() as u32,
                                     byte_offset: Some(self.buffer.len() as u32),
                                     byte_stride: Some(vertex_size as u32),
                                     name: None,
@@ -829,7 +840,12 @@ impl BWX {
                                 self.accessors.push(accessor);
                                 // Index bufferView
                                 buffer_view_index = self.buffer_views.len();
-                                self.buffer.append(&mut vertex_buffer.clone());
+
+                                // Use converted buffer instead
+                                self.buffer.append(&mut o_buffer.get_mut());
+                                // self.buffer.append(&mut vertex_buffer.clone());
+
+
                                 // TODO: UV's V is negative value, change to positive and horizontal flip image?
                                 {
                                     // MEMO: Guessing, the extra two vertex are MIN / MAX
@@ -870,28 +886,36 @@ impl BWX {
                                 // The mesh data with normals are incorrect, comment out the following code
                                 // and use only "DOUBLE SIDED" material? MAYBE...
                                 // TODO: Comment out the code or not?!
-                                // if direction.starts_with("MSHX") {
-                                //     // "MSHX", DirectX, left hand clockwise triangles
-                                //     // Have to be changed to right hand counter-clockwise for OpenGL
-                                //     // Change (a, b, c) -> <a, c, b>
-                                //     debug!("------ changing order ------");
-                                //     let mut i_buffer = Cursor::new(index_buffer);
-                                //     let mut o_buffer = Cursor::new(vec![]);
-                                //     for _i in 0..index_count / 3 {
-                                //         let a = i_buffer.read_u16::<LittleEndian>()?;
-                                //         let b = i_buffer.read_u16::<LittleEndian>()?;
-                                //         let c = i_buffer.read_u16::<LittleEndian>()?;
-                                //         o_buffer.write_u16::<LittleEndian>(a)?;
-                                //         o_buffer.write_u16::<LittleEndian>(c)?;
-                                //         o_buffer.write_u16::<LittleEndian>(b)?;
-                                //     }
-                                //     let mut buffer = o_buffer.into_inner();
-                                //     self.buffer.append(&mut buffer);
-                                //     // End order changing
-                                // } else {
-                                // Original order, store to binary directly
-                                self.buffer.append(&mut index_buffer.clone());
-                                // }
+                                if direction.starts_with("MSHX") {
+                                    // "MSHX", DirectX, left hand clockwise triangles
+                                    // Have to be changed to right hand counter-clockwise for OpenGL
+                                    // Change (a, b, c) -> <a, c, b>
+                                    debug!("------ changing order ------, {}", index_count);
+                                    let mut i_buffer = Cursor::new(index_buffer.clone());
+                                    let mut o_buffer = Cursor::new(vec![]);
+                                    for _i in 0..index_count / 3 {
+                                        let a = i_buffer.read_u16::<LittleEndian>()?;
+                                        let b = i_buffer.read_u16::<LittleEndian>()?;
+                                        let c = i_buffer.read_u16::<LittleEndian>()?;
+                                        o_buffer.write_u16::<LittleEndian>(a)?;
+                                        o_buffer.write_u16::<LittleEndian>(c)?;
+                                        o_buffer.write_u16::<LittleEndian>(b)?;
+                                    }
+                                    // Padding to four bytes
+                                    let length = o_buffer.get_ref().len();
+                                    let padding = ((length + 3) & !3) - length;
+                                    if padding > 0 {
+                                        o_buffer.seek(SeekFrom::End(0))?;
+                                        for _ in 0..padding {
+                                            o_buffer.write_u8(0)?;
+                                        }
+                                    }
+                                    self.buffer.append(o_buffer.get_mut());
+                                    // End order changing
+                                } else {
+                                    // Original order, store to binary directly
+                                    self.buffer.append(&mut index_buffer.clone());
+                                }
 
                                 // Test
                                 let mut v_buffer = Cursor::new(vertex_buffer);
@@ -917,12 +941,16 @@ impl BWX {
                                     //writeln!(output, "v {} {} {}", t.x, t.z, -t.y)?;
                                     // Method 2, rotate -90 degrees along x-axis
                                     let rot = Matrix4::from_angle_x(Rad(-90.0f32.to_radians()));
-                                    // let t = rot * matrix * vv;
-                                    // writeln!(output, "v {} {} {}", t.x, t.y, t.z)?;
-                                    writeln!(output, "v {} {} {}", x, y, z)?;
+                                    let matrix = cgmath::Matrix4::new(
+                                        matrix[0], matrix[1], matrix[2], matrix[3],
+                                        matrix[4], matrix[5], matrix[6], matrix[7],
+                                        matrix[8], matrix[9], matrix[10], matrix[11],
+                                        matrix[12], matrix[13], matrix[14], matrix[15],
+                                    );
+                                    let t = rot * matrix * vv;
+                                    writeln!(output, "v {} {} {}", t.x, t.y, t.z)?;
                                     // End Blender rotation
-                                    // let position = [t.x, t.y, t.z];
-                                    let position = [x, y, z];
+                                    let position = [t.x, t.y, t.z];
                                     v.push(position);
                                     let normal = [
                                         v_buffer.read_f32::<LittleEndian>()?,
@@ -989,7 +1017,23 @@ impl BWX {
                         ];
 
                          */
-                        let (translation, rotation, scale) = matrix.decomposed();
+                        let m = matrix.clone();
+                        let m = gltf::scene::Transform::Matrix {
+                            matrix: [
+                                // [m[0], m[8], -m[4], m[12]],
+                                // [m[2], m[10], -m[6], m[14]],
+                                // [-m[1], -m[9], -m[5], -m[13]],
+                                // [m[3], m[11], -m[7], m[15]],
+                                [m[0], m[1], m[2], m[3]],
+                                [m[4], m[5], m[6], m[7]],
+                                [m[8], m[9], m[10], m[11]],
+                                [m[12], m[13], m[14], m[15]],
+                            ]
+                        };
+                        let (t, r, s) = m.decomposed();
+                        let translation = [t[0], -t[2], t[1]];
+                        let rotation = [r[0], -r[2], r[1], r[3]];
+                        let scale = [s[0], s[2], s[1]];
 
 
                         // Store the node for Scene
@@ -1044,30 +1088,55 @@ impl BWX {
                                 //debug!("-------matrix len: {}", mm.len());
                                 let mut buffer = Cursor::new(mm);
                                 let timeline = buffer.read_u32::<LittleEndian>()? as f32 / 3600.0;
-                                let mmm = gltf::scene::Transform::Matrix {
-                                    matrix: [[
-                                        buffer.read_f32::<LittleEndian>()?,
-                                        buffer.read_f32::<LittleEndian>()?,
-                                        buffer.read_f32::<LittleEndian>()?,
-                                        buffer.read_f32::<LittleEndian>()?,
-                                    ], [
-                                        buffer.read_f32::<LittleEndian>()?,
-                                        buffer.read_f32::<LittleEndian>()?,
-                                        buffer.read_f32::<LittleEndian>()?,
-                                        buffer.read_f32::<LittleEndian>()?,
-                                    ], [
-                                        buffer.read_f32::<LittleEndian>()?,
-                                        buffer.read_f32::<LittleEndian>()?,
-                                        buffer.read_f32::<LittleEndian>()?,
-                                        buffer.read_f32::<LittleEndian>()?,
-                                    ], [
-                                        buffer.read_f32::<LittleEndian>()?,
-                                        buffer.read_f32::<LittleEndian>()?,
-                                        buffer.read_f32::<LittleEndian>()?,
-                                        buffer.read_f32::<LittleEndian>()?,
-                                    ]]
+                                let m = [
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                ];
+                                // let (translation, rotation, scale) = mmm.decomposed();
+                                // let m = matrix.clone();
+                                /*
+                                let m = gltf::scene::Transform::Matrix {
+                                    matrix: [
+                                        [m[0], m[8], -m[4], m[12]],
+                                        [m[2], m[10], -m[6], m[14]],
+                                        [-m[1], -m[9], -m[5], -m[13]],
+                                        [m[3], m[11], -m[7], m[15]],
+                                    ]
                                 };
-                                let (translation, rotation, scale) = mmm.decomposed();
+
+                                 */
+                                let m = gltf::scene::Transform::Matrix {
+                                    matrix: [
+                                        // [m[0], m[8], -m[4], m[12]],
+                                        // [m[2], m[10], -m[6], m[14]],
+                                        // [-m[1], -m[9], -m[5], -m[13]],
+                                        // [m[3], m[11], -m[7], m[15]],
+                                        [m[0], m[1], m[2], m[3]],
+                                        [m[4], m[5], m[6], m[7]],
+                                        [m[8], m[9], m[10], m[11]],
+                                        [m[12], m[13], m[14], m[15]],
+                                    ]
+                                };
+                                let (t, r, s) = m.decomposed();
+                                let translation = [t[0], -t[2], t[1]];
+                                let rotation = [r[0], -r[2], r[1], r[3]];
+                                let scale = [s[0], s[2], s[1]];
+
+                                // let (translation, rotation, scale) = m.decomposed();
                                 debug!("T: {:.2}, {:?}, {:?}, {:?}", timeline, translation, rotation, scale);
                                 // Write timeline, translation, rotation and scale to buffer
                                 // Could use system's array.as_bytes, but cannot ensure when running on big endian system

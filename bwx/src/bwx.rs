@@ -1,14 +1,11 @@
 use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::Path;
-use std::{mem, fs};
-use std::borrow::Borrow;
+use std::mem;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use tracing::{debug, error, info, trace, warn};
 use serde::Serialize;
 use cgmath::*;
-use gltf::{Gltf, json::{self, validation::Checked::Valid}, Node, scene::Transform::Matrix};
-use gltf::json::Asset;
-use gltf::texture::{MinFilter, MagFilter, WrappingMode};
+use gltf::json::{self, validation::Checked::Valid};
 use image::GenericImageView;
 use serde_json::json;
 
@@ -108,12 +105,12 @@ pub struct Material {
     pub sub_materials: Vec<SubMaterial>,
 }
 
-#[derive(Debug, Default, Copy, Clone)]
-pub struct Vertex {
-    position: [f32; 3],
-    normal: [f32; 3],
-    tex_coord: [f32; 2],
-}
+// #[derive(Debug, Default, Copy, Clone)]
+// pub struct Vertex {
+//     position: [f32; 3],
+//     normal: [f32; 3],
+//     tex_coord: [f32; 2],
+// }
 
 #[derive(Debug, Default)]
 /// A BWX class to handle ShiningLore BNX / PNX file
@@ -121,7 +118,7 @@ pub struct BWX {
     content: Cursor<Vec<u8>>,
     pub data: SlType,
     version: i32,
-    vertices: Vec<Vertex>,
+    // vertices: Vec<Vertex>,
     buffer: Vec<u8>,
     buffer_views: Vec<json::buffer::View>,
     accessors: Vec<json::Accessor>,
@@ -133,7 +130,7 @@ pub struct BWX {
     // Store the material group information
     material_index: Vec<Vec<u32>>,
     node_index: Vec<u32>,
-    animations: Vec<json::Animation>,
+    // animations: Vec<json::Animation>,
     samplers: Vec<json::animation::Sampler>,
     channels: Vec<json::animation::Channel>,
 }
@@ -455,7 +452,7 @@ impl BWX {
                                 .position(|x| x.uri.as_ref() == Some(&filename));
                             let texture_index = if a.is_some() {
                                 Some(a.unwrap() as u32)
-                            } else if tga.len() > 0 {
+                            } else if !tga.is_empty() {
                                 {
                                     // Convert image from TGA to PNG
                                     let img = image::open(tga.clone())?.flipv();
@@ -503,18 +500,16 @@ impl BWX {
                                 alpha_cutoff: None,
                                 alpha_mode: Default::default(),
                                 // FIXME: Enable double side material for disordered meshes !!!
-                                double_sided: true,
+                                double_sided: false,
                                 name: Some(name.clone()),
                                 pbr_metallic_roughness: json::material::PbrMetallicRoughness {
                                     base_color_factor: Default::default(),
-                                    base_color_texture: if let Some(i) = texture_index {
-                                        Some(json::texture::Info {
-                                            index: json::Index::new(i),
-                                            tex_coord: 0, // Only have texture_0 now
-                                            extensions: None,
-                                            extras: Default::default(),
-                                        })
-                                    } else { None },
+                                    base_color_texture: texture_index.map(|i| json::texture::Info {
+                                        index: json::Index::new(i),
+                                        tex_coord: 0, // Only have texture_0 now
+                                        extensions: None,
+                                        extras: Default::default(),
+                                    }),
                                     metallic_factor: Default::default(),
                                     roughness_factor: Default::default(),
                                     metallic_roughness_texture: None,
@@ -733,7 +728,7 @@ impl BWX {
                                     // TODO: Clean up code
                                     // Calculate min / max for position
                                     let mut vb = Cursor::new(vertex_buffer.clone());
-                                    for i in 0..vertex_count {
+                                    for _ in 0..vertex_count {
                                         let v = cgmath::Vector3::new(
                                             vb.read_f32::<LittleEndian>()?,
                                             vb.read_f32::<LittleEndian>()?,
@@ -839,10 +834,10 @@ impl BWX {
                                 };
                                 self.accessors.push(accessor);
                                 // Index bufferView
-                                buffer_view_index = self.buffer_views.len();
+                                // buffer_view_index = self.buffer_views.len();
 
                                 // Use converted buffer instead
-                                self.buffer.append(&mut o_buffer.get_mut());
+                                self.buffer.append(o_buffer.get_mut());
                                 // self.buffer.append(&mut vertex_buffer.clone());
 
 
@@ -853,19 +848,19 @@ impl BWX {
                                     // So, just leave it alone as what it is?
                                     // Test code to output UV texture coordinate
                                     let mut vb = Cursor::new(vertex_buffer.clone());
-                                    for i in vertex_count / 3..vertex_count / 3 + 2 {
+                                    for _ in vertex_count / 3..vertex_count / 3 + 2 {
                                         // Skip Vertex (96) + Normal (96) = 192 = 128 + 64
-                                        let v = (
+                                        let _v = (
                                             vb.read_f32::<LittleEndian>()?,
                                             vb.read_f32::<LittleEndian>()?,
                                             vb.read_f32::<LittleEndian>()?,
                                         );
-                                        let n = (
+                                        let _n = (
                                             vb.read_f32::<LittleEndian>()?,
                                             vb.read_f32::<LittleEndian>()?,
                                             vb.read_f32::<LittleEndian>()?,
                                         );
-                                        let uv = (
+                                        let _uv = (
                                             vb.read_f32::<LittleEndian>()?,
                                             vb.read_f32::<LittleEndian>()?,
                                         );
@@ -963,11 +958,11 @@ impl BWX {
                                         v_buffer.read_f32::<LittleEndian>()?,
                                     ];
                                     vt.push(tex_coord);
-                                    self.vertices.push(Vertex {
-                                        position,
-                                        normal,
-                                        tex_coord,
-                                    });
+                                    // self.vertices.push(Vertex {
+                                    //     position,
+                                    //     normal,
+                                    //     tex_coord,
+                                    // });
                                 }
                                 /*
                                 for vv in v {
@@ -1017,7 +1012,7 @@ impl BWX {
                         ];
 
                          */
-                        let m = matrix.clone();
+                        let m = matrix;
                         let m = gltf::scene::Transform::Matrix {
                             matrix: [
                                 // [m[0], m[8], -m[4], m[12]],
@@ -1043,13 +1038,13 @@ impl BWX {
                         self.node_index.push(node_count);
                         let node = json::Node {
                             camera: None,
-                            children: Some(node_index.into_iter().map(|x| json::Index::new(x)).collect()),
+                            children: Some(node_index.into_iter().map(json::Index::new).collect()),
                             extensions: Default::default(),
                             extras: Default::default(),
                             // matrix: Some(node_matrix),
                             matrix: None,
                             mesh: None,
-                            name: Some(name.clone().into()),
+                            name: Some(name.clone()),
                             rotation: Some(json::scene::UnitQuaternion(rotation)),
                             scale: Some(scale),
                             translation: Some(translation),
@@ -1198,7 +1193,7 @@ impl BWX {
                             // Accessor for Translation
                             let mut accessor = json::Accessor {
                                 buffer_view: Some(json::Index::new(buffer_view_index as u32)),
-                                byte_offset: 1 * mem::size_of::<f32>() as u32,
+                                byte_offset: mem::size_of::<f32>() as u32,
                                 count: animation_count,
                                 component_type: Valid(json::accessor::GenericComponentType(
                                     json::accessor::ComponentType::F32)),
@@ -1310,7 +1305,7 @@ impl BWX {
             extensions: Default::default(),
             extras: Default::default(),
             name: None,
-            uri: Some(oname.clone() + ".bin".into()),
+            uri: Some(oname.clone() + ".bin"),
         };
 
         let asset = json::Asset {
@@ -1377,8 +1372,8 @@ impl BWX {
         let j = json::serialize::to_string_pretty(&root).expect("OK");
         //debug!("glTF:\n{}", j);
 
-        std::fs::write(oname.clone() + ".gltf", j.as_bytes());
-        std::fs::write(oname + ".bin", self.buffer.clone());
+        std::fs::write(oname.clone() + ".gltf", j.as_bytes())?;
+        std::fs::write(oname + ".bin", self.buffer.clone())?;
 
         // debug!("{:#?}", self.material_index);
 
@@ -1546,22 +1541,6 @@ impl BWX {
         };
         Ok(data)
     }
-}
-
-fn align_to_multiple_of_four(n: &mut u32) {
-    *n = (*n + 3) & !3;
-}
-
-fn to_padded_byte_vector<T>(vec: Vec<T>) -> Vec<u8> {
-    let byte_length = vec.len() * mem::size_of::<T>();
-    let byte_capacity = vec.capacity() * mem::size_of::<T>();
-    let alloc = vec.into_boxed_slice();
-    let ptr = Box::<[T]>::into_raw(alloc) as *mut u8;
-    let mut new_vec = unsafe { Vec::from_raw_parts(ptr, byte_length, byte_capacity) };
-    while new_vec.len() % 4 != 0 {
-        new_vec.push(0); // pad to multiple of four bytes
-    }
-    new_vec
 }
 
 

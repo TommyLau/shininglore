@@ -146,11 +146,11 @@ pub struct BWX {
     content: Cursor<Vec<u8>>,
     pub data: SlType,
     // HEAD
-    head: Head,
+    pub head: Head,
     // MTRL
-    materials: Vec<Material>,
+    pub materials: Vec<Material>,
     // DXOBJ / SPOB
-    objects: Vec<Object>,
+    pub objects: Vec<Object>,
 }
 
 impl BWX {
@@ -264,6 +264,7 @@ impl BWX {
                                     None
                                 },
                             };
+                            trace!("\tSub Material - Texture: {:?}", sub_material.filename);
                             sub_materials.push(sub_material);
                         }
                         self.materials.push(Material { sub_materials });
@@ -463,10 +464,6 @@ impl BWX {
                 }
             }
         }
-
-        let oname = oname.to_str().unwrap();
-        let oname = oname[..oname.rfind('.').unwrap()].to_owned();
-        debug!("{}", oname);
 
         Ok(())
     }

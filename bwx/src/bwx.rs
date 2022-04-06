@@ -95,13 +95,17 @@ pub struct Head {
     pub other: String,
 }
 
+// Block 'MTRL' and 'SUBMTRL'
+#[derive(Debug, Default)]
 pub struct SubMaterial {
+    pub diffuse: i32,
+    pub ambient: i32,
+    pub specular: i32,
     pub highlight: f32,
-    pub filename: String,
-    pub used: bool,
+    pub filename: Option<String>,
 }
 
-// Block 'MTRL'
+#[derive(Debug, Default)]
 pub struct Material {
     pub sub_materials: Vec<SubMaterial>,
 }
@@ -136,6 +140,8 @@ pub struct BWX {
     channels: Vec<json::animation::Channel>,
     // HEAD
     head: Head,
+    // MTRL
+    mtrls: Vec<Material>,
 }
 
 pub fn print_matrix<T>(m: &Matrix4<T>)
@@ -228,17 +234,16 @@ impl BWX {
                     }
                 }
                 "MTRL" => {
-                    for material_groups in children {
-                        let material_group = material_groups.array()?;
+                    for material_children in children {
+                        let material_array = material_children.array()?;
                         // material[0] - Material Group "MTRL"
                         // material[1] - Material Group Name
                         // material[2..n] - Material Array for Sub Materials
-                        let name = material_group[1].string()?;
-                        trace!("Material Group: {}", name);
-                        let mut material_array = vec![];
-                        for (i, sub_materials) in material_group.iter().enumerate().skip(2) {
-                            let sub_material = sub_materials.array()?;
-                            let highlight = sub_material[5].float()?;
+                        let material_name = material_array[1].string()?;
+                        trace!("Material Group: {}", material_name);
+                        let mut sub_materials = vec![];
+                        for sub_material_children in material_array.iter().skip(2) {
+                            let sub_material_array = sub_material_children.array()?;
                             // 0 - "SUBMTRL"
                             // 1 - Diffuse ???
                             // 2 - Ambient ???
@@ -248,117 +253,28 @@ impl BWX {
                             // 6 - Most 0x01
                             // 7 - ???
                             // 8 - Texture Array
-                            let (png_file, tga) = if sub_material.len() > 8 {
-                                // Some materials have no texture, such as glass
-                                let texture = sub_material[8].array()?;
-                                // 0 - "TEX"
-                                // 1 - Most 0x00, timer?
-                                // 2 - Filename
-                                let filename = texture[2].string()?
-                                    .split('\\').last().unwrap().to_owned();
-                                (
-                                    filename//.to_lowercase()
+                            let sub_material = SubMaterial {
+                                diffuse: sub_material_array[1].int()?,
+                                ambient: sub_material_array[2].int()?,
+                                specular: sub_material_array[3].int()?,
+                                highlight: sub_material_array[5].float()?,
+                                filename: if sub_material_array.len() > 8 {
+                                    // Some materials have no texture, such as glass
+                                    let texture_array = sub_material_array[8].array()?;
+                                    // 0 - "TEX"
+                                    // 1 - Most 0x00, timer?
+                                    // 2 - Filename
+                                    Some(texture_array[2].string()?
+                                        .split('\\').last().unwrap()
                                         .split('.').next().unwrap()
-                                        .to_owned() + ".png",
-                                    if filename[filename.len() - 3..].to_lowercase().starts_with("dds") {
-                                        filename.to_owned() + ".png"
-                                    } else {
-                                        filename.to_owned()
-                                    }
-                                )
-                            } else { ("".into(), "".into()) };
-
-                            debug!("TGA File: {}", tga);
-                            let a = self.images.iter()
-                                .position(|x| x.uri.as_ref() == Some(&png_file));
-                            let texture_index = if a.is_some() {
-                                Some(a.unwrap() as u32)
-                            } else if !tga.is_empty() {
-                                {
-                                    // Convert image from TGA to PNG
-                                    let tga_file = if !Path::new(&tga).exists() {
-                                        filename.as_ref().parent().unwrap()
-                                            .parent().unwrap().join("TGA/").join(&tga)
-                                    } else {
-                                        PathBuf::from(&tga)
-                                    };
-                                    let img = image::open(tga_file)?.flipv();
-
-                                    // The dimensions and color
-                                    debug!("\tdimensions: {:?}, color: {:?}", img.dimensions(), img.color());
-                                    // Write the contents of this image to the Writer in PNG format.
-                                    let png_file = filename.as_ref().parent().unwrap()
-                                        .join(&png_file);
-                                    if !Path::new(&png_file).exists() {
-                                        img.save(png_file.clone())?;
-                                    } else {
-                                        debug!("\tImage file {:?} exists, no convert", png_file.display());
-                                    }
-                                }
-                                let texture_index = self.textures.len() as u32;
-                                let image_index = self.images.len() as u32;
-                                let image = json::Image {
-                                    buffer_view: None,
-                                    mime_type: None,
-                                    name: None,
-                                    uri: Some(png_file.clone()),
-                                    extensions: None,
-                                    extras: Default::default(),
-                                };
-                                self.images.push(image);
-                                let texture = json::Texture {
-                                    name: None,
-                                    //sampler: Some(json::Index::new(0)),
-                                    sampler: None,
-                                    source: json::Index::new(image_index),
-                                    extensions: None,
-                                    extras: Default::default(),
-                                };
-                                self.textures.push(texture);
-                                Some(texture_index)
-                            } else {
-                                None
-                            };
-
-
-                            // Store the material id in array for mesh to lookup
-                            let material_id = self.materials.len() as u32;
-                            material_array.push(material_id);
-
-                            let material = json::Material {
-                                alpha_cutoff: None,
-                                alpha_mode: Default::default(),
-                                // FIXME: Enable double side material for disordered meshes !!!
-                                double_sided: false,
-                                name: Some(name.clone()),
-                                pbr_metallic_roughness: json::material::PbrMetallicRoughness {
-                                    base_color_factor: Default::default(),
-                                    base_color_texture: texture_index.map(|i| json::texture::Info {
-                                        index: json::Index::new(i),
-                                        tex_coord: 0, // Only have texture_0 now
-                                        extensions: None,
-                                        extras: Default::default(),
-                                    }),
-                                    metallic_factor: Default::default(),
-                                    roughness_factor: Default::default(),
-                                    metallic_roughness_texture: None,
-                                    extensions: None,
-                                    extras: Default::default(),
+                                        .to_owned() + ".png")
+                                } else {
+                                    None
                                 },
-                                normal_texture: None,
-                                occlusion_texture: None,
-                                emissive_texture: None,
-                                emissive_factor: Default::default(),
-                                extensions: None,
-                                extras: Default::default(),
                             };
-                            self.materials.push(material);
-
-                            trace!("\tSub Material {}: Highlight: {}, File: {}, Orig: {}",
-                                i - 2, highlight, png_file, tga);
+                            sub_materials.push(sub_material);
                         }
-                        // Store current material group in material index
-                        self.material_index.push(material_array);
+                        self.mtrls.push(Material { sub_materials });
                     }
                 }
                 // TODO: Parse OBJ2 mesh data from SL1
@@ -529,10 +445,7 @@ impl BWX {
                                     extensions: Default::default(),
                                     extras: Default::default(),
                                     indices: Some(json::Index::new(accessor_index + 3)),
-                                    material: if texture_index < 0 { None } else {
-                                        Some(json::Index::new(
-                                            self.material_index[texture_index as usize][sub_texture_index as usize]))
-                                    },
+                                    material: None,
                                     mode: Valid(json::mesh::Mode::Triangles),
                                     targets: None,
                                 };
@@ -961,7 +874,6 @@ impl BWX {
                                 let scale = [s[0], s[2], s[1]];
 
                                 // let (translation, rotation, scale) = m.decomposed();
-                                debug!("T: {:.2}, {:?}, {:?}, {:?}", timeline, translation, rotation, scale);
                                 // Write timeline, translation, rotation and scale to buffer
                                 // Could use system's array.as_bytes, but cannot ensure when running on big endian system
                                 // So use the old school byteorder method
@@ -1146,13 +1058,13 @@ impl BWX {
             version: "2.0".to_string(),
         };
 
-        //let a: Vec<json::Index<Node>> = (0..10u32).map(|x| json::Index::new(x)).colletc();
-        // let scene_nodes: Vec<json::Index<json::Node>> = (0..self.nodes.len() as u32)
-        //     .map(|x| json::Index::new(x)).collect();
+//let a: Vec<json::Index<Node>> = (0..10u32).map(|x| json::Index::new(x)).colletc();
+// let scene_nodes: Vec<json::Index<json::Node>> = (0..self.nodes.len() as u32)
+//     .map(|x| json::Index::new(x)).collect();
         let scene_nodes = self.node_index.iter()
             .map(|x| json::Index::new(*x)).collect();
 
-        // Disable sampler should display correct texture
+// Disable sampler should display correct texture
         /*
         let sampler = json::texture::Sampler {
             mag_filter: Some(Valid(MagFilter::Nearest)),
@@ -1166,7 +1078,7 @@ impl BWX {
 
          */
 
-        // NOTICE: Texture should be vertical flipped
+// NOTICE: Texture should be vertical flipped
         let root = json::Root {
             asset,
             scene: Some(json::Index::new(0)),
@@ -1181,7 +1093,7 @@ impl BWX {
             accessors: self.accessors.clone(),
             buffer_views: self.buffer_views.clone(),
             buffers: vec![buffer],
-            //samplers: vec![sampler],
+//samplers: vec![sampler],
             materials: self.materials.clone(),
             textures: self.textures.clone(),
             images: self.images.clone(),
@@ -1196,15 +1108,15 @@ impl BWX {
         };
 
 
-        //debug!("Buffer Views:\n{:#?}", self.buffer_views);
-        //debug!("Accessors:\n{:#?}", self.accessors);
+//debug!("Buffer Views:\n{:#?}", self.buffer_views);
+//debug!("Accessors:\n{:#?}", self.accessors);
         let j = json::serialize::to_string_pretty(&root).expect("OK");
-        //debug!("glTF:\n{}", j);
+//debug!("glTF:\n{}", j);
 
         std::fs::write(oname.clone() + ".gltf", j.as_bytes())?;
         std::fs::write(oname + ".bin", self.buffer.clone())?;
 
-        // debug!("{:#?}", self.material_index);
+// debug!("{:#?}", self.material_index);
 
 
         Ok(())

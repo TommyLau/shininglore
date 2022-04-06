@@ -885,6 +885,7 @@ dependencies = [
  "json5",
  "ron",
  "serde",
+ "serde_json",
  "tracing",
 ]
 

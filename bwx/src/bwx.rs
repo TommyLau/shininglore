@@ -1,18 +1,12 @@
-use std::io::{Cursor, Read, Seek, SeekFrom};
-use std::path::{Path, PathBuf};
-use std::mem;
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use std::io::{Cursor, Read};
+use std::path::Path;
+use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use tracing::{debug, error, info, trace, warn};
-use serde::Serialize;
-use cgmath::*;
-use gltf::json::{self, validation::Checked::Valid};
-use image::GenericImageView;
-use serde_json::json;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 // u8, i8, u16, i16, u32, i32, u64, i64, u128, i128, usize, isize, f32, f64
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub enum SlType {
     UChar(u8),
     Char(i8),
@@ -110,11 +104,40 @@ pub struct Material {
     pub sub_materials: Vec<SubMaterial>,
 }
 
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Default)]
 pub struct Vertex {
     position: [f32; 3],
     normal: [f32; 3],
     tex_coord: [f32; 2],
+}
+
+// Block 'DXMESHF'
+#[derive(Debug, Default)]
+pub struct SubMesh {
+    timeline: i32,
+    vertices: Vec<Vertex>,
+}
+
+// Block 'DXMESH'
+#[derive(Debug, Default)]
+pub struct Mesh {
+    sub_material: i32,
+    sub_meshes: Vec<SubMesh>,
+    index_count: i32,
+    indices: Vec<u16>,
+}
+
+#[derive(Debug, Default)]
+pub struct Matrix {
+    timeline: i32,
+    matrix: [f32; 16],
+}
+
+#[derive(Debug, Default)]
+pub struct Object {
+    name: String,
+    meshes: Vec<Mesh>,
+    matrices: Vec<Matrix>,
 }
 
 #[derive(Debug, Default)]
@@ -122,36 +145,12 @@ pub struct Vertex {
 pub struct BWX {
     content: Cursor<Vec<u8>>,
     pub data: SlType,
-    version: i32,
-    // vertices: Vec<Vertex>,
-    buffer: Vec<u8>,
-    buffer_views: Vec<json::buffer::View>,
-    accessors: Vec<json::Accessor>,
-    meshes: Vec<json::Mesh>,
-    nodes: Vec<json::Node>,
-    images: Vec<json::Image>,
-    textures: Vec<json::Texture>,
-    materials: Vec<json::Material>,
-    // Store the material group information
-    material_index: Vec<Vec<u32>>,
-    node_index: Vec<u32>,
-    // animations: Vec<json::Animation>,
-    samplers: Vec<json::animation::Sampler>,
-    channels: Vec<json::animation::Channel>,
     // HEAD
     head: Head,
     // MTRL
-    mtrls: Vec<Material>,
-}
-
-pub fn print_matrix<T>(m: &Matrix4<T>)
-    where
-        T: std::fmt::Display,
-{
-    println!("{0:<30}{1:<30}{2:<30}{3:<30}", m.x.x, m.y.x, m.z.x, m.w.x);
-    println!("{0:<30}{1:<30}{2:<30}{3:<30}", m.x.y, m.y.y, m.z.y, m.w.y);
-    println!("{0:<30}{1:<30}{2:<30}{3:<30}", m.x.z, m.y.z, m.z.z, m.w.z);
-    println!("{0:<30}{1:<30}{2:<30}{3:<30}", m.x.w, m.y.w, m.z.w, m.w.w);
+    materials: Vec<Material>,
+    // DXOBJ / SPOB
+    objects: Vec<Object>,
 }
 
 impl BWX {
@@ -190,17 +189,10 @@ impl BWX {
         self.content.set_position(4);
         self.data = self.go_through(true)?;
 
-        // Test obj code
-        use std::io::Write;
-        let mut output = vec![];
-        writeln!(output, "# ShiningLore Online Development Team (SLODT)")?;
-        writeln!(output, "# Tommy Lau <tommy.lhg@gmail.com>")?;
-        // Test
-
         for node in self.data.array().unwrap() {
-            let name = node.string()?;
+            let node_name = node.string()?;
             let children = node.d_array()?;
-            match name.as_str() {
+            match node_name.as_str() {
                 "0" => {
                     // Default block "0" with string "SLBWX"
                 }
@@ -274,11 +266,16 @@ impl BWX {
                             };
                             sub_materials.push(sub_material);
                         }
-                        self.mtrls.push(Material { sub_materials });
+                        self.materials.push(Material { sub_materials });
                     }
                 }
                 // TODO: Parse OBJ2 mesh data from SL1
                 "OBJ2" => {
+                    if children.is_empty() {
+                        warn!("No data block found in {}", node_name);
+                        continue;
+                    }
+
                     warn!("OBJ2 parsing needs to be implemented! {}@{}", file!(), line!());
                 }
                 "OBJECT" => {}
@@ -288,17 +285,13 @@ impl BWX {
                 "BONE" => {}
                 "CHART" => {}
                 "DXOBJ" | "SPOB" => {
-                    // TODO: Store parsed data into struct
                     if children.is_empty() {
-                        warn!("No data block found in {}", name);
+                        warn!("No data block found in {}", node_name);
                         continue;
                     }
 
-                    // Index for OBJ output, vertex index starts from 1 in OBJ
-                    let mut idx: u32 = 1;
-
-                    for objects in children {
-                        let object = objects.array()?;
+                    for object_children in children {
+                        let object_array = object_children.array()?;
                         // 0 - "DXOBJ" / "SPOB"
                         // 1 - Mesh Name
                         // 2 - Unknown integer
@@ -307,506 +300,113 @@ impl BWX {
                         // 6 - 0x4D534858h("MSHX") or 0x4D4E4858h("MNHX")
                         // 7 - Array("DXMESH")
                         // 8 - Array("MATRIX")
-                        let name = object[1].string()?;
-                        let texture_index = object[3].int()?;
-                        writeln!(output, "o {}", name)?;
-                        trace!("Object: {}, Texture Index: {}", name, texture_index);
+                        let object_name = object_array[1].string()?;
+                        let material = object_array[3].int()?;
+                        let mut direction = vec![];
+                        direction.write_i32::<BigEndian>(object_array[6].int()?)?;
+                        let direction = std::str::from_utf8(&direction).unwrap();
+                        trace!("Object: {}, Material: {}, Direction: {}", object_name, material, direction);
 
                         {
                             // Do not process special object starts with EV_ / EP_
-                            if name.starts_with("EV_") || name.starts_with("EP_") {
+                            // FIXME: Enable later when process with collision detection and etc.
+                            if object_name.starts_with("EV_") || object_name.starts_with("EP_") {
                                 continue;
                             }
                         }
 
-                        // Confirmed: MSHX = clockwise?, MNHX = counter-clockwise?
-                        let mut direction = vec![];
-                        direction.write_i32::<byteorder::BigEndian>(object[6].int()?)?;
-                        let direction = std::str::from_utf8(&direction).unwrap();
-                        // After checking, no matter MSHX nor MNHX, we have to change the index order
-                        // DirectX is rendering in clockwise, OpenGL is rendering in couter-clockwise
-                        // So we have to change the order from (a, b, c) -> (a, c, b)
-                        debug!("Direction: {}", direction);
-                        //------------------------------
-                        // Get only the first matrix
-                        let matrix = {
-                            let matrix = object[8].array()?[0].array()?[1].data()?;
-                            let mut buffer = Cursor::new(matrix);
-                            let _timeline = buffer.read_u32::<LittleEndian>()?;
-                            // cgmath::Matrix4::new(
-                            [
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                buffer.read_f32::<LittleEndian>()?,
-                                // )
-                            ]
-                        };
-                        //debug!("{:#?}", matrix);
-                        let mut node_index = vec![];
-                        // ========================================
-                        // Meshes
-                        let meshes = object[7].array()?;
-                        for mesh_array in meshes {
-                            let mesh = mesh_array.array()?;
+                        // Meshes - DXMESH
+                        let mesh_children = object_array[7].array()?;
+                        let mut meshes = vec![];
+                        for meshes_array in mesh_children {
+                            let mesh_array = meshes_array.array()?;
                             // 0 - "DXMESH"
-                            // 1 - Texture Index in Texture Group
+                            // 1 - Sub Material in Materials
                             // 2 - Array("DXMESHF")
-                            // 3 - Index Buffer Size
+                            // 3 - Index Count
                             // 4 - Index Buffer
-                            let sub_texture_index = mesh[1].int()?;
-                            let index_count = mesh[3].int()?;
-                            let index_buffer = mesh[4].data()?;
-                            let index_buffer_length = index_buffer.len();
-                            if index_buffer_length != index_count as usize * 2 {
-                                error!("Index block size incorrect!");
-                            }
-                            trace!("\tMesh: [Texture Index: {}, Index Count: {}, Size: {}",
-                                sub_texture_index, index_count, index_buffer.len());
-                            debug!("Before Padding Length: {}", index_buffer.len());
-                            let mut index_buffer = Cursor::new(index_buffer.clone());
-                            // Padding to four bytes
-                            let padding = ((index_buffer_length + 3) & !3) - index_buffer_length;
-                            if padding > 0 {
-                                debug!("============Padding: {}", padding);
-                                index_buffer.seek(SeekFrom::End(0))?;
-                                for _ in 0..padding {
-                                    index_buffer.write_u8(0)?;
-                                }
-                            }
-                            let index_buffer = index_buffer.into_inner();
-                            debug!("After Padding Length: {}", index_buffer.len());
+                            let sub_material = mesh_array[1].int()?;
+                            trace!("\tMesh - Sub_Material: {}", sub_material);
 
-                            let blocks = mesh[2].array()?;
-                            // for vertices in blocks {
-                            // FIXME: Only process the first frame of the animation
-                            let vertices = &blocks[0];
-                            {
-                                let vertex = vertices.array()?;
+                            let sub_mesh_children = mesh_array[2].array()?;
+                            let mut sub_meshes = vec![];
+                            for sub_mesh_array in sub_mesh_children {
+                                let sub_mesh = sub_mesh_array.array()?;
                                 // 0 - "DXMESHF"
                                 // 1 - VB Timer
                                 // 2 - Vertex Type??? - 0x15
                                 // 3 - Vertex Count
                                 // 4 - Vertex Size - 0x20
                                 // 5 - Vertex Buffer
-                                let timer = vertex[1].int()?;
-                                let vertex_type = vertex[2].int()?;
-                                let vertex_count = vertex[3].int()?;
-                                let vertex_size = vertex[4].int()?;
-                                let vertex_buffer = vertex[5].data()?;
-                                trace!("\t\tVertex: [Timer: {}, Type: {}, Count: {}, Size: {}, BufLen: {}",
-                                timer, vertex_type, vertex_count, vertex_size, vertex_buffer.len());
-                                // 111
-                                let mut buffer_view_index = self.buffer_views.len();
-                                let accessor_index = self.accessors.len() as u32;
-                                let mesh_index = self.meshes.len() as u32;
-
-                                // Store the children
-                                node_index.push(self.nodes.len() as u32);
-                                let node = json::Node {
-                                    camera: None,
-                                    children: None,
-                                    extensions: Default::default(),
-                                    extras: Default::default(),
-                                    matrix: None,
-                                    mesh: Some(json::Index::new(mesh_index)),
-                                    name: None,
-                                    rotation: None,
-                                    scale: None,
-                                    translation: None,
-                                    skin: None,
-                                    weights: None,
-                                };
-                                self.nodes.push(node);
-
-                                // Mesh - Primitive
-                                let primitive = json::mesh::Primitive {
-                                    attributes: {
-                                        let mut map = std::collections::HashMap::new();
-                                        map.insert(Valid(json::mesh::Semantic::Positions), json::Index::new(accessor_index));
-                                        // FIXME: Something wrong with the normals, might be DirectX clock-wise normal calculation?
-                                        // Don't know how it will be to render in WebGPU, will see later, keep it as ON for now.
-                                        map.insert(Valid(json::mesh::Semantic::Normals), json::Index::new(accessor_index + 1));
-                                        map.insert(Valid(json::mesh::Semantic::TexCoords(0)), json::Index::new(accessor_index + 2));
-                                        map
-                                    },
-                                    extensions: Default::default(),
-                                    extras: Default::default(),
-                                    indices: Some(json::Index::new(accessor_index + 3)),
-                                    material: None,
-                                    mode: Valid(json::mesh::Mode::Triangles),
-                                    targets: None,
-                                };
-
-                                let mesh = json::Mesh {
-                                    extensions: Default::default(),
-                                    extras: Default::default(),
-                                    // name: Some(name.clone().into()),
-                                    // As a mesh group, no name is giving to the mesh but the object
-                                    name: None,
-                                    primitives: vec![primitive],
-                                    weights: None,
-                                };
-                                self.meshes.push(mesh);
+                                let timeline = sub_mesh[1].int()?;
+                                let _vertex_type = sub_mesh[2].int()?;
+                                let vertex_count = sub_mesh[3].int()?;
+                                let _vertex_size = sub_mesh[4].int()?;
+                                let vertex_buffer = sub_mesh[5].data()?.clone();
+                                trace!("\t\tSub_Mesh - Timeline: {}, Count: {}", timeline, vertex_count );
+                                let mut vertex_buffer = Cursor::new(vertex_buffer);
 
                                 // Vertex
-                                let mut v_min = cgmath::Vector3::new(0.0f32, 0.0, 0.0);
-                                let mut v_max = cgmath::Vector3::new(0.0f32, 0.0, 0.0);
-                                let mut v_set = false;
-                                let mut o_buffer = Cursor::new(vec![]);
-                                {
-                                    // TODO: Clean up code
-                                    // Calculate min / max for position
-                                    let mut vb = Cursor::new(vertex_buffer.clone());
-                                    for _ in 0..vertex_count {
-                                        let v = cgmath::Vector3::new(
-                                            vb.read_f32::<LittleEndian>()?,
-                                            vb.read_f32::<LittleEndian>()?,
-                                            vb.read_f32::<LittleEndian>()?,
-                                        );
-                                        // Convert to Blender Coordinates
-                                        o_buffer.write_f32::<LittleEndian>(v.x)?;
-                                        o_buffer.write_f32::<LittleEndian>(-v.z)?;
-                                        o_buffer.write_f32::<LittleEndian>(v.y)?;
-                                        let n = cgmath::Vector3 {
-                                            x: vb.read_f32::<LittleEndian>()?,
-                                            y: vb.read_f32::<LittleEndian>()?,
-                                            z: vb.read_f32::<LittleEndian>()?,
-                                        };
-                                        // Convert to Blender Coordinates
-                                        o_buffer.write_f32::<LittleEndian>(n.x)?;
-                                        o_buffer.write_f32::<LittleEndian>(-n.z)?;
-                                        o_buffer.write_f32::<LittleEndian>(n.y)?;
-                                        let uv = cgmath::Vector2 {
-                                            x: vb.read_f32::<LittleEndian>()?,
-                                            y: vb.read_f32::<LittleEndian>()?,
-                                        };
-                                        // Convert texture mapping to [0, 1]
-                                        o_buffer.write_f32::<LittleEndian>(uv.x)?;
-                                        o_buffer.write_f32::<LittleEndian>(-uv.y)?;
-                                        if v_set {
-                                            //debug!("Min Max: {:?} - {:?} - {:?}", v, v_min, v_max);
-                                            if v.x > v_max.x { v_max.x = v.x; }
-                                            if v.y > v_max.y { v_max.y = v.y; }
-                                            if v.z > v_max.z { v_max.z = v.z; }
-                                            if v.x < v_min.x { v_min.x = v.x; }
-                                            if v.y < v_min.y { v_min.y = v.y; }
-                                            if v.z < v_min.z { v_min.z = v.z; }
-                                        } else {
-                                            v_min = v;
-                                            v_max = v;
-                                            v_set = true;
-                                        }
-                                    }
-                                    debug!("Min = {:?}, Max = {:?}", v_min, v_max);
-                                }
-                                let v_min: [f32; 3] = v_min.into();
-                                let v_max: [f32; 3] = v_max.into();
-                                let mut accessor = json::Accessor {
-                                    buffer_view: Some(json::Index::new(buffer_view_index as u32)),
-                                    byte_offset: 0,
-                                    count: vertex_count as u32,
-                                    component_type: Valid(json::accessor::GenericComponentType(
-                                        json::accessor::ComponentType::F32
-                                    )),
-                                    extensions: None,
-                                    extras: Default::default(),
-                                    type_: Valid(json::accessor::Type::Vec3),
-                                    min: Some(json!(v_min)),
-                                    max: Some(json!(v_max)),
-                                    name: None,
-                                    normalized: false,
-                                    sparse: None,
-                                };
-                                self.accessors.push(accessor.clone());
-                                // Normal
-                                accessor.byte_offset = (3 * mem::size_of::<f32>()) as u32;
-                                accessor.min = None;
-                                accessor.max = None;
-                                self.accessors.push(accessor.clone());
-                                // Texture Coordinate
-                                accessor.byte_offset = (6 * mem::size_of::<f32>()) as u32;
-                                accessor.type_ = Valid(json::accessor::Type::Vec2);
-                                self.accessors.push(accessor.clone());
-
-                                debug!("o_buffer len: {}, vcount: {}", o_buffer.get_ref().len(), vertex_count);
-                                let mut buffer_view = json::buffer::View {
-                                    buffer: json::Index::new(0),
-                                    // byte_length: vertex_buffer.len() as u32,
-                                    byte_length: o_buffer.get_ref().len() as u32,
-                                    byte_offset: Some(self.buffer.len() as u32),
-                                    byte_stride: Some(vertex_size as u32),
-                                    name: None,
-                                    target: None,
-                                    extensions: None,
-                                    extras: Default::default(),
-                                };
-                                self.buffer_views.push(buffer_view.clone());
-
-                                // Index Buffer ------------------
-                                buffer_view_index = self.buffer_views.len();
-                                // Accessor for index
-                                let accessor = json::Accessor {
-                                    buffer_view: Some(json::Index::new(buffer_view_index as u32)),
-                                    byte_offset: 0,
-                                    count: index_count as u32,
-                                    component_type: Valid(json::accessor::GenericComponentType(
-                                        json::accessor::ComponentType::U16
-                                    )),
-                                    extensions: None,
-                                    extras: Default::default(),
-                                    type_: Valid(json::accessor::Type::Scalar),
-                                    min: None,
-                                    max: None,
-                                    name: None,
-                                    normalized: false,
-                                    sparse: None,
-                                };
-                                self.accessors.push(accessor);
-                                // Index bufferView
-                                // buffer_view_index = self.buffer_views.len();
-
-                                // Use converted buffer instead
-                                self.buffer.append(o_buffer.get_mut());
-                                // self.buffer.append(&mut vertex_buffer.clone());
-
-
-                                // TODO: UV's V is negative value, change to positive and horizontal flip image?
-                                {
-                                    // MEMO: Guessing, the extra two vertex are MIN / MAX
-                                    // Partially confirm with EV_COL3D object, but the coordinate value is incorrect
-                                    // So, just leave it alone as what it is?
-                                    // Test code to output UV texture coordinate
-                                    let mut vb = Cursor::new(vertex_buffer.clone());
-                                    for _ in vertex_count / 3..vertex_count / 3 + 2 {
-                                        // Skip Vertex (96) + Normal (96) = 192 = 128 + 64
-                                        let _v = (
-                                            vb.read_f32::<LittleEndian>()?,
-                                            vb.read_f32::<LittleEndian>()?,
-                                            vb.read_f32::<LittleEndian>()?,
-                                        );
-                                        let _n = (
-                                            vb.read_f32::<LittleEndian>()?,
-                                            vb.read_f32::<LittleEndian>()?,
-                                            vb.read_f32::<LittleEndian>()?,
-                                        );
-                                        let _uv = (
-                                            vb.read_f32::<LittleEndian>()?,
-                                            vb.read_f32::<LittleEndian>()?,
-                                        );
-                                        // debug!("---- Vertex: {:?}", v);
-                                        // debug!("---- Normal: {:?}", n);
-                                        // debug!("--- UV: {:?}",uv);
-                                    }
-                                    // End test output text UV
-                                }
-                                buffer_view.buffer = json::Index::new(0);
-                                buffer_view.byte_length = index_buffer.len() as u32;
-                                buffer_view.byte_offset = Some(self.buffer.len() as u32);
-                                buffer_view.byte_stride = None;
-                                self.buffer_views.push(buffer_view);
-
-                                // Seems double sided material could solve the problem
-                                // And for HERO PNX, no matter how I change the index order
-                                // The mesh data with normals are incorrect, comment out the following code
-                                // and use only "DOUBLE SIDED" material? MAYBE...
-                                // TODO: Comment out the code or not?!
-                                if direction.starts_with("MSHX") {
-                                    // "MSHX", DirectX, left hand clockwise triangles
-                                    // Have to be changed to right hand counter-clockwise for OpenGL
-                                    // Change (a, b, c) -> <a, c, b>
-                                    debug!("------ changing order ------, {}", index_count);
-                                    let mut i_buffer = Cursor::new(index_buffer.clone());
-                                    let mut o_buffer = Cursor::new(vec![]);
-                                    for _i in 0..index_count / 3 {
-                                        let a = i_buffer.read_u16::<LittleEndian>()?;
-                                        let b = i_buffer.read_u16::<LittleEndian>()?;
-                                        let c = i_buffer.read_u16::<LittleEndian>()?;
-                                        o_buffer.write_u16::<LittleEndian>(a)?;
-                                        o_buffer.write_u16::<LittleEndian>(c)?;
-                                        o_buffer.write_u16::<LittleEndian>(b)?;
-                                    }
-                                    // Padding to four bytes
-                                    let length = o_buffer.get_ref().len();
-                                    let padding = ((length + 3) & !3) - length;
-                                    if padding > 0 {
-                                        o_buffer.seek(SeekFrom::End(0))?;
-                                        for _ in 0..padding {
-                                            o_buffer.write_u8(0)?;
-                                        }
-                                    }
-                                    self.buffer.append(o_buffer.get_mut());
-                                    // End order changing
-                                } else {
-                                    // Original order, store to binary directly
-                                    self.buffer.append(&mut index_buffer.clone());
-                                }
-
-                                // Test
-                                let mut v_buffer = Cursor::new(vertex_buffer);
-                                let mut v = Vec::new();
-                                let mut vn = Vec::new();
-                                let mut vt = Vec::new();
+                                let mut vertices = vec![];
                                 for _ in 0..vertex_count {
-                                    let x = v_buffer.read_f32::<LittleEndian>()?;
-                                    let y = v_buffer.read_f32::<LittleEndian>()?;
-                                    let z = v_buffer.read_f32::<LittleEndian>()?;
-                                    let vv = Vector4::new(x, y, z, 1.0);
-                                    // Normal code
-                                    /*
-                                    // let t = matrix * vv;
-                                    // writeln!(output, "v {} {} {}", t.x, t.y, t.z)?;
-                                     */
-                                    // ??? DirectX and OpenGL got different Z-Axis
-                                    // ??? Since the game was originally develop for DirectX
-                                    // ??? Reverse the Z-Axis to fit OpenGL spec
-                                    //
-                                    // Add rotation to fit Blender?!
-                                    // Method 1, change (x,y,z) -> (x,z,-y)
-                                    //writeln!(output, "v {} {} {}", t.x, t.z, -t.y)?;
-                                    // Method 2, rotate -90 degrees along x-axis
-                                    let rot = Matrix4::from_angle_x(Rad(-90.0f32.to_radians()));
-                                    let matrix = cgmath::Matrix4::new(
-                                        matrix[0], matrix[1], matrix[2], matrix[3],
-                                        matrix[4], matrix[5], matrix[6], matrix[7],
-                                        matrix[8], matrix[9], matrix[10], matrix[11],
-                                        matrix[12], matrix[13], matrix[14], matrix[15],
-                                    );
-                                    let t = rot * matrix * vv;
-                                    writeln!(output, "v {} {} {}", t.x, t.y, t.z)?;
-                                    // End Blender rotation
-                                    let position = [t.x, t.y, t.z];
-                                    v.push(position);
+                                    let position = [
+                                        vertex_buffer.read_f32::<LittleEndian>()?,
+                                        vertex_buffer.read_f32::<LittleEndian>()?,
+                                        vertex_buffer.read_f32::<LittleEndian>()?,
+                                    ];
                                     let normal = [
-                                        v_buffer.read_f32::<LittleEndian>()?,
-                                        v_buffer.read_f32::<LittleEndian>()?,
-                                        v_buffer.read_f32::<LittleEndian>()?,
+                                        vertex_buffer.read_f32::<LittleEndian>()?,
+                                        vertex_buffer.read_f32::<LittleEndian>()?,
+                                        vertex_buffer.read_f32::<LittleEndian>()?,
                                     ];
-                                    vn.push(normal);
                                     let tex_coord = [
-                                        v_buffer.read_f32::<LittleEndian>()?,
-                                        v_buffer.read_f32::<LittleEndian>()?,
+                                        vertex_buffer.read_f32::<LittleEndian>()?,
+                                        vertex_buffer.read_f32::<LittleEndian>()?,
                                     ];
-                                    vt.push(tex_coord);
-                                    // self.vertices.push(Vertex {
-                                    //     position,
-                                    //     normal,
-                                    //     tex_coord,
-                                    // });
+                                    vertices.push(Vertex { position, normal, tex_coord });
                                 }
-                                /*
-                                for vv in v {
-                                    //writeln!(output, "v {} {} {}", vv[0], vv[1], vv[2])?;
-                                    // Implement Matrix transformation
-                                    //debug!("Before: [{}, {}, {}]", vv[0],vv[1],vv[2]);
-                                    let v = Vector4::new(vv[0], vv[1], vv[2], 1.0);
-                                    let t = matrix * v;
-                                    //debug!("After: [{}, {}, {}, {}]", t.x,t.y,t.z,t.w);
-                                    writeln!(output, "v {} {} {}", t.x, t.y, t.z)?;
-                                    // End Matrix transformation
-                                }
-                                 */
-                                /*
-                                for vv in vn {
-                                    writeln!(output, "vn {} {} {}", vv[0], vv[1], vv[2])?;
-                                }
-                                for vv in vt {
-                                    writeln!(output, "vt {} {}", vv[0], vv[1])?;
-                                }
-                                 */
-                                let mut v_buffer = Cursor::new(index_buffer);
-                                for _i in 0..index_count / 3 {
-                                    /*
-                                    let a = v_buffer.read_u16::<LittleEndian>()?;
-                                    let b = v_buffer.read_u16::<LittleEndian>()?;
-                                    let c = v_buffer.read_u16::<LittleEndian>()?;
-                                    */
-                                    let a = v_buffer.read_u16::<LittleEndian>()? as u32 + idx;
-                                    let b = v_buffer.read_u16::<LittleEndian>()? as u32 + idx;
-                                    let c = v_buffer.read_u16::<LittleEndian>()? as u32 + idx;
-                                    //writeln!(output, "f {}/{}/{}", a, b, c)?;
-                                    // ??? Change DirectX clock-wise to counter clock-wise
-                                    writeln!(output, "f {} {} {}", a, b, c)?;
-                                }
-                                idx += vertex_count as u32;
-                                // End test
+                                sub_meshes.push(SubMesh { timeline, vertices });
                             }
+
+                            // Index Count & Buffer
+                            let index_count = mesh_array[3].int()?;
+                            let index_buffer = mesh_array[4].data()?.clone();
+                            if index_buffer.len() as i32 != index_count * 2 {
+                                error!("Index block size incorrect!");
+                            }
+                            let mut index_buffer = Cursor::new(index_buffer);
+                            // And for HERO PNX, no matter how I change the index order
+                            // The mesh data with normals are incorrect, comment out the following code
+                            // and use only "DOUBLE SIDED" material? MAYBE...
+                            // TODO: Comment out the code or not?!
+                            let mut indices = vec![];
+                            if direction.starts_with("MSHX") {
+                                for _ in 0..index_count / 3 {
+                                    indices.push(index_buffer.read_u16::<LittleEndian>()?);
+                                    let b = index_buffer.read_u16::<LittleEndian>()?;
+                                    let c = index_buffer.read_u16::<LittleEndian>()?;
+                                    indices.push(c);
+                                    indices.push(b);
+                                }
+                            } else {
+                                for _ in 0..index_count {
+                                    indices.push(index_buffer.read_u16::<LittleEndian>()?);
+                                }
+                            }
+
+                            meshes.push(Mesh { sub_material, sub_meshes, index_count, indices });
                         }
-                        // Node matrix doesn't support animation, decompose to TRS
-                        /*
-                        let node_matrix = [
-                            matrix.x.x, matrix.x.y, matrix.x.z, matrix.x.w,
-                            matrix.y.x, matrix.y.y, matrix.y.z, matrix.y.w,
-                            matrix.z.x, matrix.z.y, matrix.z.z, matrix.z.w,
-                            matrix.w.x, matrix.w.y, matrix.w.z, matrix.w.w,
-                        ];
 
-                         */
-                        let m = matrix;
-                        let m = gltf::scene::Transform::Matrix {
-                            matrix: [
-                                // [m[0], m[8], -m[4], m[12]],
-                                // [m[2], m[10], -m[6], m[14]],
-                                // [-m[1], -m[9], -m[5], -m[13]],
-                                // [m[3], m[11], -m[7], m[15]],
-                                [m[0], m[1], m[2], m[3]],
-                                [m[4], m[5], m[6], m[7]],
-                                [m[8], m[9], m[10], m[11]],
-                                [m[12], m[13], m[14], m[15]],
-                            ]
-                        };
-                        let (t, r, s) = m.decomposed();
-                        let translation = [t[0], -t[2], t[1]];
-                        let rotation = [r[0], -r[2], r[1], r[3]];
-                        let scale = [s[0], s[2], s[1]];
-
-
-                        // Store the node for Scene
-                        let node_count = self.nodes.len() as u32;
-                        debug!("mesh_node: {:#?}", node_count);
-                        debug!("node_index: {:?}", node_index);
-                        self.node_index.push(node_count);
-                        let node = json::Node {
-                            camera: None,
-                            children: Some(node_index.into_iter().map(json::Index::new).collect()),
-                            extensions: Default::default(),
-                            extras: Default::default(),
-                            // matrix: Some(node_matrix),
-                            matrix: None,
-                            mesh: None,
-                            name: Some(name.clone()),
-                            rotation: Some(json::scene::UnitQuaternion(rotation)),
-                            scale: Some(scale),
-                            translation: Some(translation),
-                            skin: None,
-                            weights: None,
-                        };
-                        self.nodes.push(node);
-
-                        // Matrices
-                        let matrices = object[8].array()?;
-                        for matrix_array in matrices {
-                            let matrix = matrix_array.array()?;
+                        // Matrices - MATRIX
+                        let matrices_children = object_array[8].array()?;
+                        let mut matrices = vec![];
+                        for matrices_array in matrices_children {
+                            let matrix_array = matrices_array.array()?;
                             // 0 - "MATRIX"
                             // 1..n - Matrix
-                            // TODO: Parse matrix later
-                            trace!("\tMatrix: [Length: {}]", matrix.len() - 1);
-                            let mut o_buffer = Cursor::new(vec![]);
-                            let mut timeline_max = 0.0;
-                            for m in matrix.iter().skip(1) {
-                                let mm = m.data()?;
+                            trace!("\tMatrix - Count: {}", matrix_array.len() - 1);
+                            for m in matrix_array.iter().skip(1) {
+                                let mut buffer = Cursor::new(m.data()?.clone());
                                 // 0 - Timeline, based on 160, in u32
                                 // 1 ~ 16, 4x4 Matrix in f32, column-major order, for eg.
                                 // [0.9542446, -0.2165474, -0.103003055, 0.0]
@@ -822,10 +422,8 @@ impl BWX {
                                 // [1.0, 1.0, 1.0, -0.0013206453, 0.00029969783, 0.00014250366, 0.002762136]
                                 // Guessing: [1.0, 1.0, 1.0], scale factor ???
                                 // Left another Vec4(-0.0013206453, 0.00029969783, 0.00014250366, 0.002762136), hmm...
-                                //debug!("-------matrix len: {}", mm.len());
-                                let mut buffer = Cursor::new(mm);
-                                let timeline = buffer.read_u32::<LittleEndian>()? as f32 / 3600.0;
-                                let m = [
+                                let timeline = buffer.read_i32::<LittleEndian>()?;
+                                let matrix = [
                                     buffer.read_f32::<LittleEndian>()?,
                                     buffer.read_f32::<LittleEndian>()?,
                                     buffer.read_f32::<LittleEndian>()?,
@@ -843,181 +441,17 @@ impl BWX {
                                     buffer.read_f32::<LittleEndian>()?,
                                     buffer.read_f32::<LittleEndian>()?,
                                 ];
-                                // let (translation, rotation, scale) = mmm.decomposed();
-                                // let m = matrix.clone();
-                                /*
-                                let m = gltf::scene::Transform::Matrix {
-                                    matrix: [
-                                        [m[0], m[8], -m[4], m[12]],
-                                        [m[2], m[10], -m[6], m[14]],
-                                        [-m[1], -m[9], -m[5], -m[13]],
-                                        [m[3], m[11], -m[7], m[15]],
-                                    ]
-                                };
 
-                                 */
-                                let m = gltf::scene::Transform::Matrix {
-                                    matrix: [
-                                        // [m[0], m[8], -m[4], m[12]],
-                                        // [m[2], m[10], -m[6], m[14]],
-                                        // [-m[1], -m[9], -m[5], -m[13]],
-                                        // [m[3], m[11], -m[7], m[15]],
-                                        [m[0], m[1], m[2], m[3]],
-                                        [m[4], m[5], m[6], m[7]],
-                                        [m[8], m[9], m[10], m[11]],
-                                        [m[12], m[13], m[14], m[15]],
-                                    ]
-                                };
-                                let (t, r, s) = m.decomposed();
-                                let translation = [t[0], -t[2], t[1]];
-                                let rotation = [r[0], -r[2], r[1], r[3]];
-                                let scale = [s[0], s[2], s[1]];
-
-                                // let (translation, rotation, scale) = m.decomposed();
-                                // Write timeline, translation, rotation and scale to buffer
-                                // Could use system's array.as_bytes, but cannot ensure when running on big endian system
-                                // So use the old school byteorder method
-                                o_buffer.write_f32::<LittleEndian>(timeline)?;
-                                for v in translation { o_buffer.write_f32::<LittleEndian>(v)?; }
-                                for v in rotation { o_buffer.write_f32::<LittleEndian>(v)?; }
-                                for v in scale { o_buffer.write_f32::<LittleEndian>(v)?; }
-
-                                if timeline > timeline_max {
-                                    timeline_max = timeline;
-                                }
-                                /*
-                                // TODO: Update logic here, processing only one matrix right now
-                                break;
-
-                                 */
+                                matrices.push(Matrix { timeline, matrix });
                             }
-                            // Store data in buffer
-                            let offset = self.buffer.len();
-                            let length = o_buffer.get_ref().len();
-                            self.buffer.append(o_buffer.get_mut());
-
-                            // Prepare bufferView
-                            let buffer_view_index = self.buffer_views.len();
-                            let buffer_view = json::buffer::View {
-                                buffer: json::Index::new(0),
-                                byte_length: length as u32,
-                                byte_offset: Some(offset as u32),
-                                byte_stride: Some((mem::size_of::<f32>() * 11) as u32),
-                                name: Some(name.clone() + "_Matrix"),
-                                target: None,
-                                extensions: None,
-                                extras: Default::default(),
-                            };
-                            self.buffer_views.push(buffer_view);
-
-                            let animation_count = matrix.len() as u32 - 1;
-                            // Accessor for timeline
-                            let accessor_index = self.accessors.len();
-                            let accessor = json::Accessor {
-                                buffer_view: Some(json::Index::new(buffer_view_index as u32)),
-                                byte_offset: 0,
-                                count: animation_count,
-                                component_type: Valid(json::accessor::GenericComponentType(
-                                    json::accessor::ComponentType::F32)),
-                                extensions: None,
-                                extras: Default::default(),
-                                type_: Valid(json::accessor::Type::Scalar),
-                                min: Some(json!([0.0f32])),
-                                max: Some(json!([timeline_max])),
-                                name: Some(name.clone() + "_Timeline"),
-                                normalized: false,
-                                sparse: None,
-                            };
-                            self.accessors.push(accessor);
-                            debug!("bufferView: {}", buffer_view_index);
-
-                            // Accessor for Translation
-                            let mut accessor = json::Accessor {
-                                buffer_view: Some(json::Index::new(buffer_view_index as u32)),
-                                byte_offset: mem::size_of::<f32>() as u32,
-                                count: animation_count,
-                                component_type: Valid(json::accessor::GenericComponentType(
-                                    json::accessor::ComponentType::F32)),
-                                extensions: None,
-                                extras: Default::default(),
-                                type_: Valid(json::accessor::Type::Vec3),
-                                min: None,
-                                max: None,
-                                name: Some(name.clone() + "_Translation"),
-                                normalized: false,
-                                sparse: None,
-                            };
-                            self.accessors.push(accessor.clone());
-                            // Accessor for Rotation
-                            accessor.byte_offset = (1 + 3) * mem::size_of::<f32>() as u32;
-                            accessor.type_ = Valid(json::accessor::Type::Vec4);
-                            accessor.name = Some(name.clone() + "_Rotation");
-                            self.accessors.push(accessor.clone());
-                            // Accessor for Scale
-                            accessor.byte_offset = (1 + 3 + 4) * mem::size_of::<f32>() as u32;
-                            accessor.type_ = Valid(json::accessor::Type::Vec3);
-                            accessor.name = Some(name.clone() + "_Scale");
-                            self.accessors.push(accessor);
-
-
-                            // Samplers
-                            // let mut samplers = vec![];
-                            let sampler_index = self.samplers.len() as u32;
-                            // Samplers - Translation
-                            let mut sampler = json::animation::Sampler {
-                                extensions: None,
-                                extras: Default::default(),
-                                input: json::Index::new(accessor_index as u32),
-                                interpolation: Valid(json::animation::Interpolation::Linear),
-                                output: json::Index::new(accessor_index as u32 + 1),
-                            };
-                            self.samplers.push(sampler.clone());
-                            // Samplers - Rotation
-                            sampler.output = json::Index::new(accessor_index as u32 + 2);
-                            self.samplers.push(sampler.clone());
-                            // Samplers - Scale
-                            sampler.output = json::Index::new(accessor_index as u32 + 3);
-                            self.samplers.push(sampler);
-
-                            // Channels
-                            // let mut channels = vec![];
-                            // Channel - Translation
-                            let mut channel = json::animation::Channel {
-                                sampler: json::Index::new(sampler_index),
-                                target: json::animation::Target {
-                                    extensions: None,
-                                    extras: Default::default(),
-                                    node: json::Index::new(node_count),
-                                    path: Valid(json::animation::Property::Translation),
-                                },
-                                extensions: None,
-                                extras: Default::default(),
-                            };
-                            self.channels.push(channel.clone());
-                            // Channel - Rotation
-                            channel.sampler = json::Index::new(sampler_index + 1);
-                            channel.target.path = Valid(json::animation::Property::Rotation);
-                            self.channels.push(channel.clone());
-                            // Channel - Scale
-                            channel.sampler = json::Index::new(sampler_index + 2);
-                            channel.target.path = Valid(json::animation::Property::Scale);
-                            self.channels.push(channel);
-
-                            // self.animations.push(json::Animation {
-                            //     extensions: None,
-                            //     extras: Default::default(),
-                            //     channels,
-                            //     name: Some(name.clone() + "_Animation"),
-                            //     samplers,
-                            // });
-
-                            // TODO: Add accessors for Translation / Rotation / Scale
-                            // UPDATE ABOVE! 2022-03-30
                         }
+
+                        self.objects.push(Object { name: object_name, meshes, matrices });
+
                         // SFX Blocks?
-                        if object.len() > 9 {
+                        if object_array.len() > 9 {
                             // TODO: Parse SFX
-                            let sfx = object[9].array()?;
+                            let sfx = object_array[9].array()?;
                             if !sfx.is_empty() {
                                 warn!("\tSFX: Unhandled SFX blocks? {}@{}", file!(), line!());
                             }
@@ -1025,99 +459,14 @@ impl BWX {
                     }
                 }
                 _ => {
-                    error!("Unknown block: {}", name);
+                    error!("Unknown block: {}", node_name);
                 }
             }
         }
 
-        //debug!("{:#?}", self.data);
-
-        // Test obj code
-
-        // let oname = String::from(filename.as_ref().to_str().unwrap());
         let oname = oname.to_str().unwrap();
         let oname = oname[..oname.rfind('.').unwrap()].to_owned();
         debug!("{}", oname);
-        std::fs::write(oname.clone() + ".obj", output)?;
-
-
-        let buffer = json::Buffer {
-            byte_length: self.buffer.len() as u32,
-            extensions: Default::default(),
-            extras: Default::default(),
-            name: None,
-            uri: Some(oname.clone() + ".bin"),
-        };
-
-        let asset = json::Asset {
-            copyright: Some("SLODT All Rights Reserved. (C) 2003-2022".into()),
-            extensions: None,
-            extras: Default::default(),
-            generator: Some("Tommy's BWX Exporter".into()),
-            min_version: None,
-            version: "2.0".to_string(),
-        };
-
-//let a: Vec<json::Index<Node>> = (0..10u32).map(|x| json::Index::new(x)).colletc();
-// let scene_nodes: Vec<json::Index<json::Node>> = (0..self.nodes.len() as u32)
-//     .map(|x| json::Index::new(x)).collect();
-        let scene_nodes = self.node_index.iter()
-            .map(|x| json::Index::new(*x)).collect();
-
-// Disable sampler should display correct texture
-        /*
-        let sampler = json::texture::Sampler {
-            mag_filter: Some(Valid(MagFilter::Nearest)),
-            min_filter: Some(Valid(MinFilter::Nearest)),
-            name: None,
-            wrap_s: Valid(WrappingMode::ClampToEdge),
-            wrap_t: Valid(WrappingMode::ClampToEdge),
-            extensions: None,
-            extras: Default::default(),
-        };
-
-         */
-
-// NOTICE: Texture should be vertical flipped
-        let root = json::Root {
-            asset,
-            scene: Some(json::Index::new(0)),
-            scenes: vec![json::Scene {
-                extensions: Default::default(),
-                extras: Default::default(),
-                name: Some("Scene".into()),
-                nodes: scene_nodes,
-            }],
-            nodes: self.nodes.clone(),
-            meshes: self.meshes.clone(),
-            accessors: self.accessors.clone(),
-            buffer_views: self.buffer_views.clone(),
-            buffers: vec![buffer],
-//samplers: vec![sampler],
-            materials: self.materials.clone(),
-            textures: self.textures.clone(),
-            images: self.images.clone(),
-            animations: vec![json::Animation {
-                extensions: None,
-                extras: Default::default(),
-                channels: self.channels.clone(),
-                name: Some("Animation".into()),
-                samplers: self.samplers.clone(),
-            }],
-            ..Default::default()
-        };
-
-
-//debug!("Buffer Views:\n{:#?}", self.buffer_views);
-//debug!("Accessors:\n{:#?}", self.accessors);
-        let j = json::serialize::to_string_pretty(&root).expect("OK");
-//debug!("glTF:\n{}", j);
-
-        std::fs::write(oname.clone() + ".gltf", j.as_bytes())?;
-        std::fs::write(oname + ".bin", self.buffer.clone())?;
-
-// debug!("{:#?}", self.material_index);
-
 
         Ok(())
     }

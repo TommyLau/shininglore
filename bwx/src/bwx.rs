@@ -1,5 +1,5 @@
 use std::io::{Cursor, Read, Seek, SeekFrom};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::mem;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use tracing::{debug, error, info, trace, warn};
@@ -360,7 +360,7 @@ impl BWX {
         info!("{}", filename.as_ref().display());
         let oname = filename.as_ref().to_owned();
 
-        let data = std::fs::read(filename)?;
+        let data = std::fs::read(filename.as_ref())?;
         self.content = Cursor::new(data);
 
         self.check_bwx_header()?;
@@ -426,7 +426,7 @@ impl BWX {
                             // 6 - Most 0x01
                             // 7 - ???
                             // 8 - Texture Array
-                            let (filename, tga) = if sub_material.len() > 8 {
+                            let (png_file, tga) = if sub_material.len() > 8 {
                                 // Some materials have no texture, such as glass
                                 let texture = sub_material[8].array()?;
                                 // 0 - "TEX"
@@ -435,7 +435,7 @@ impl BWX {
                                 let filename = texture[2].string()?
                                     .split('\\').last().unwrap().to_owned();
                                 (
-                                    filename.to_lowercase()
+                                    filename//.to_lowercase()
                                         .split('.').next().unwrap()
                                         .to_owned() + ".png",
                                     if filename[filename.len() - 3..].to_lowercase().starts_with("dds") {
@@ -446,24 +446,31 @@ impl BWX {
                                 )
                             } else { ("".into(), "".into()) };
 
-
                             debug!("TGA File: {}", tga);
                             let a = self.images.iter()
-                                .position(|x| x.uri.as_ref() == Some(&filename));
+                                .position(|x| x.uri.as_ref() == Some(&png_file));
                             let texture_index = if a.is_some() {
                                 Some(a.unwrap() as u32)
                             } else if !tga.is_empty() {
                                 {
                                     // Convert image from TGA to PNG
-                                    let img = image::open(tga.clone())?.flipv();
+                                    let tga_file = if !Path::new(&tga).exists() {
+                                        filename.as_ref().parent().unwrap()
+                                            .parent().unwrap().join("TGA/").join(&tga)
+                                    } else {
+                                        PathBuf::from(&tga)
+                                    };
+                                    let img = image::open(tga_file)?.flipv();
 
                                     // The dimensions and color
                                     debug!("\tdimensions: {:?}, color: {:?}", img.dimensions(), img.color());
                                     // Write the contents of this image to the Writer in PNG format.
-                                    if !Path::new(&filename).exists() {
-                                        img.save(filename.clone())?;
+                                    let png_file = filename.as_ref().parent().unwrap()
+                                        .join(&png_file);
+                                    if !Path::new(&png_file).exists() {
+                                        img.save(png_file.clone())?;
                                     } else {
-                                        debug!("\tImage file {} exists, no convert", filename);
+                                        debug!("\tImage file {:?} exists, no convert", png_file.display());
                                     }
                                 }
                                 let texture_index = self.textures.len() as u32;
@@ -472,7 +479,7 @@ impl BWX {
                                     buffer_view: None,
                                     mime_type: None,
                                     name: None,
-                                    uri: Some(filename.clone()),
+                                    uri: Some(png_file.clone()),
                                     extensions: None,
                                     extras: Default::default(),
                                 };
@@ -526,7 +533,7 @@ impl BWX {
                             self.materials.push(material);
 
                             trace!("\tSub Material {}: Highlight: {}, File: {}, Orig: {}",
-                                i - 2, highlight, filename, tga);
+                                i - 2, highlight, png_file, tga);
                         }
                         // Store current material group in material index
                         self.material_index.push(material_array);
@@ -1294,7 +1301,7 @@ impl BWX {
         // Test obj code
 
         // let oname = String::from(filename.as_ref().to_str().unwrap());
-        let oname = oname.to_str().unwrap().to_lowercase();
+        let oname = oname.to_str().unwrap();
         let oname = oname[..oname.rfind('.').unwrap()].to_owned();
         debug!("{}", oname);
         std::fs::write(oname.clone() + ".obj", output)?;
@@ -1309,7 +1316,7 @@ impl BWX {
         };
 
         let asset = json::Asset {
-            copyright: Some("SLODT All Rights Reserved. (C) 2022".into()),
+            copyright: Some("SLODT All Rights Reserved. (C) 2003-2022".into()),
             extensions: None,
             extras: Default::default(),
             generator: Some("Tommy's BWX Exporter".into()),

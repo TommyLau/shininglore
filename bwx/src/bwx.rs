@@ -86,11 +86,12 @@ impl SlType {
 }
 
 // Block 'HEAD'
+#[derive(Debug, Default)]
 pub struct Head {
     pub name: String,
     pub description: String,
     pub magic: i32,
-    pub version: i16,
+    pub version: i32,
     pub other: String,
 }
 
@@ -105,12 +106,12 @@ pub struct Material {
     pub sub_materials: Vec<SubMaterial>,
 }
 
-// #[derive(Debug, Default, Copy, Clone)]
-// pub struct Vertex {
-//     position: [f32; 3],
-//     normal: [f32; 3],
-//     tex_coord: [f32; 2],
-// }
+#[derive(Debug, Default, Copy, Clone)]
+pub struct Vertex {
+    position: [f32; 3],
+    normal: [f32; 3],
+    tex_coord: [f32; 2],
+}
 
 #[derive(Debug, Default)]
 /// A BWX class to handle ShiningLore BNX / PNX file
@@ -133,6 +134,8 @@ pub struct BWX {
     // animations: Vec<json::Animation>,
     samplers: Vec<json::animation::Sampler>,
     channels: Vec<json::animation::Channel>,
+    // HEAD
+    head: Head,
 }
 
 pub fn print_matrix<T>(m: &Matrix4<T>)
@@ -171,192 +174,6 @@ impl BWX {
     pub fn load_from_file<T>(&mut self, filename: T) -> Result<()>
         where T: AsRef<Path>
     {
-        /*
-        // Now I got the idea of how to inverse the matrix
-        // From:
-        // https://github.com/toji/gl-matrix/issues/408
-        let mmm = gltf::scene::Transform::Matrix {
-            matrix: [
-                [0.04151877760887146, 0.020675182342529297, -6.616836412121074e-9, 0.0, ],
-                [6.616837744388704e-9, 1.55635282439448e-9, 0.04638181999325752, 0.0, ],
-                [-0.020675182342529297, 0.04151877760887146, 1.5563523803052703e-9, 0.0, ],
-                [0.0, 0.0, 0.0, 1.0]
-            ]
-        };
-        let m: [[f64; 4]; 4] = [
-            [0.6007744, -1.0449057e-6, 9.0477204e-7, 0.0, ],
-            [1.0107502e-6, 0.5811367, 9.953766e-9, 0.0, ],
-            [-1.6252185e-6, -1.7125686e-8, 1.0, 0.0, ],
-            [-1.730051e-9, -0.7697969, -0.019488811, 1.0, ]
-        ];
-        let m2: [[f32; 4]; 4] = [
-            [0.6007744, -1.0449057e-6, 9.0477204e-7, 0.0, ],
-            [1.0107502e-6, 0.5811367, 9.953766e-9, 0.0, ],
-            [-1.6252185e-6, -1.7125686e-8, 1.0, 0.0, ],
-            [-1.730051e-9, -0.7697969, -0.019488811, 1.0, ]
-        ];
-
-        let translation = Vector3 { x: m[3][0], y: m[3][1], z: m[3][2] };
-        debug!("Translation: {:#?}", translation);
-        let mut i = Matrix3 {
-            x: Vector3 { x: m[0][0], y: m[0][1], z: m[0][2] },
-            y: Vector3 { x: m[1][0], y: m[1][1], z: m[1][2] },
-            z: Vector3 { x: m[2][0], y: m[2][1], z: m[2][2] },
-        };
-        let sx = i.x.magnitude();
-        let sy = i.y.magnitude();
-        let sz = i.determinant().signum() * i.z.magnitude();
-        let scale = [sx, sy, sz];
-        debug!("Scale: {:#?}", scale);
-        /*
-        i.x *= 1.0 / sx;
-        i.y *= 1.0 / sy;
-        i.z *= 1.0 / sz;
-
-         */
-        let q = Quaternion::from(i);
-        let rotation = [q.v.x, q.v.y, q.v.z, q.s];
-        debug!("Rotation: {:#?}", rotation);
-
-        let t = Matrix4::from_translation(translation);
-        let r = Matrix4::from(q);
-        let s = Matrix4::from_nonuniform_scale(sx, sy, sz);
-        //debug!("T: {:#?}", t);
-        //debug!("R: {:#?}", r);
-        //debug!("S: {:#?}", r);
-        let x = t * r * s;
-
-        debug!("Matrix:");
-        let mm = Maxtrix4::from(m);
-        print_matrix(&mm);
-        debug!("Calculated Matrix:");
-        print_matrix(&x);
-
-        // Calculate f32
-        let t = Vector3 { x: -1.730051e-9f32, y: -0.7697969f32, z: -0.019488811f32 };
-        let q = Quaternion {
-            v: Vector3 { x: (q.v.x as f32), y: (q.v.y as f32), z: (q.v.z as f32) },
-            s: (q.s as f32),
-        };
-        let (sx, sy, sz) = (sx as f32, sy as f32, sz as f32);
-        let t = Matrix4::from_translation(t);
-        let r = Matrix4::from(q);
-        let s = Matrix4::from_nonuniform_scale(sx, sy, sz);
-        let x = t * r * s;
-
-        debug!("Calculated Matrix in f32:");
-        print_matrix(&x);
-
-
-        // Library calculation
-        let m = gltf::scene::Transform::Matrix { matrix: m2 };
-        let (translation, rotation, scale) = m.decomposed();
-        let mm = gltf::scene::Transform::Decomposed { translation, rotation, scale };
-        let mm = Matrix4::from(mm.matrix());
-        debug!("Library Matrix in f32:");
-        print_matrix(&mm);
-
-        return Ok(());
-        let m4 = mmm.matrix();
-        let m3 = Matrix3 {
-            x: Vector3 { x: m4[0][0], y: m4[0][1], z: m4[0][2] },
-            y: Vector3 { x: m4[1][0], y: m4[1][1], z: m4[1][2] },
-            z: Vector3 { x: m4[2][0], y: m4[2][1], z: m4[2][2] },
-        };
-        //debug!("M3: {:#?}", m3);
-        let sx = m3.x.magnitude();
-        let sy = m3.y.magnitude();
-        let sz = m3.z.magnitude();
-        let t_s = [sx, sy, sz];
-        debug!("T_S: {:#?}", t_s);
-        let mut nx = m3.x * 1.0 / sx;
-        let ny = m3.y * 1.0 / sy;
-        let nz = m3.z * 1.0 / sz;
-        let mut nr = Matrix3 { x: nx, y: ny, z: nz };
-        debug!("N_R: {:#?}, ------- aaa: ", nr);
-        let aaa = nx.cross(ny).dot(nz);
-        if aaa < 0.0 {
-            nx = nx * -1.0;
-            nr = Matrix3 { x: nx, y: ny, z: nz };
-            debug!("New N_R: {:#?}, ------- aaa: {}", nr, aaa);
-        }
-
-
-        let mut t_r = Quaternion::from(nr).normalize();
-        debug!("T_R: {:#?}", t_r);
-        let t_t = Vector3 { x: m4[3][0], y: m4[3][1], z: m4[3][2] };
-        debug!("T_T: {:#?}", t_t);
-        let t = Matrix4::from_translation(t_t);
-        let r = Matrix4::from(t_r);
-        let s = Matrix4::from_nonuniform_scale(sx, sy, sz);
-        let x = t * r * s;
-        debug!("My Calc: {:#?}", x);
-        let m = gltf::scene::Transform::Matrix { matrix: m4 };
-        let (translation, rotation, scale) = m.decomposed();
-        debug!("Decompose rotation: {:#?}", rotation);
-        let dd = gltf::scene::Transform::Decomposed { translation, rotation, scale };
-        let d = gltf::scene::Transform::Decomposed {
-            translation: t_t.into(),
-            rotation: [
-                0.1619011,
-                -0.68832266,
-                0.6883227,
-                -0.161901,
-            ],
-            scale: t_s.into(),
-        };
-        let matrix = d.matrix();
-        //        debug!("new matrix: {:#?}", matrix);
-        debug!("old matrix: {:#?}", m4);
-        let m3 = dd.matrix();
-        debug!("round matrix: {:#?}", m3);
-
-
-        let om = Matrix4 {
-            x: Vector4 { x: m4[0][0], y: m4[0][1], z: m4[0][2], w: m4[0][3] },
-            y: Vector4 { x: m4[1][0], y: m4[1][1], z: m4[1][2], w: m4[1][3] },
-            z: Vector4 { x: m4[2][0], y: m4[2][1], z: m4[2][2], w: m4[2][3] },
-            w: Vector4 { x: m4[2][0], y: m4[2][1], z: m4[2][2], w: m4[2][3] },
-        };
-        let v = Vector4 { x: 3.0, y: 4.0, z: 5.0, w: 1.0 };
-        let t1 = om * v;
-        debug!("Test Orig: {:#?}", t1);
-        let t = Matrix4::from_translation(translation.into());
-        let rotation = Quaternion {
-            v: Vector3 {
-                x: rotation[0],
-                y: rotation[1],
-                z: rotation[2],
-            },
-            s: rotation[3],
-        };
-        let r = Matrix4::from(rotation);
-        let s = Matrix4::from_nonuniform_scale(scale[0], scale[1], scale[2]);
-        let t2 = t * r * s * v;
-        debug!("Test Decompose: {:#?}", t2);
-        let m3 = Matrix4::from(m3);
-        let t3 = m3 * v;
-        debug!("T3 round Decompose: {:#?}", t3);
-
-         */
-
-
-        /*
-        let mmm = gltf::scene::Transform::Matrix { matrix: m4 };
-        let (translation, rotation, scale) = mmm.decomposed();
-        debug!("t: {:#?}", translation);
-        debug!("r: {:#?}", rotation);
-        debug!("s: {:#?}", scale);
-        let decomposed = gltf::scene::Transform::Decomposed { translation, rotation, scale };
-        let matrix = decomposed.matrix();
-        debug!("new matrix: {:#?}", matrix);
-
-         */
-
-
-        //return Ok(());
-
-
         info!("{}", filename.as_ref().display());
         let oname = filename.as_ref().to_owned();
 
@@ -388,14 +205,20 @@ impl BWX {
                         // 2 - PNX\0
                         // 3 - 0x0500: SL1, 0x0602: SL2
                         // 4 - "BWX PNX KAK"
-                        if children[0].string().unwrap().as_str() != "HEAD" {
+                        self.head = Head {
+                            name: children[0].string()?,
+                            description: children[1].string()?,
+                            magic: children[2].int()?,
+                            version: children[3].int()?,
+                            other: children[4].string()?,
+                        };
+                        if !self.head.name.starts_with("HEAD") {
                             error!("Incorrect HEAD block");
                         }
-                        if children[2].int().unwrap() != 0x504e5800 {
+                        if self.head.magic != 0x504e5800 {
                             error!("Header magic != PNX");
                         }
-                        self.version = children[3].int()?;
-                        match self.version {
+                        match self.head.version {
                             0x500 => trace!("ShiningLore V1 PNX"),
                             0x602 => trace!("ShiningLore V2 PNX"),
                             _ => error!("Unknown ShiningLore PNX version!!"),
@@ -405,7 +228,6 @@ impl BWX {
                     }
                 }
                 "MTRL" => {
-                    // TODO: Save material information in struct
                     for material_groups in children {
                         let material_group = material_groups.array()?;
                         // material[0] - Material Group "MTRL"

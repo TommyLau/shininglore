@@ -138,6 +138,7 @@ pub struct Matrix {
 #[derive(Debug, Default)]
 pub struct Object {
     name: String,
+    material: i32,
     meshes: Vec<Mesh>,
     matrices: Vec<Matrix>,
 }
@@ -275,7 +276,6 @@ impl BWX {
                         });
                     }
                 }
-                // TODO: Parse OBJ2 mesh data from SL1
                 "OBJECT" | "OBJ2" => {
                     if children.is_empty() {
                         warn!("No data block found in {}", node_name);
@@ -284,15 +284,16 @@ impl BWX {
 
                     for object_children in children {
                         let object_array = object_children.array()?;
-                        // 0 - "OBJ2"
+                        // 0 - "OBJECT" / "OBJ2"
                         // 1 - Mesh Name
                         // 2 - Unknown integer
                         // 3 - Texture Group Index : -1 means no texture
                         // 4, 5 - Unknown
                         // 6 - 0x4D534858h("MSHX") or 0x4D4E4858h("MNHX")
-                        // TODO: ------ update below
-                        // 7 - Array("DXMESH")
+                        // 7 - Array("MESH")
                         // 8 - Array("MATRIX")
+                        // 9 - DArray("VISB" / "FXNB")
+                        // 10 - Array Unknown
                         let object_name = object_array[1].string()?;
                         let material = object_array[3].int()?;
                         let mut direction = vec![];
@@ -310,20 +311,17 @@ impl BWX {
 
                         // Meshes - MESH
                         let mesh_children = object_array[7].array()?;
-                        // let mut meshes = vec![];
+                        let mut meshes = vec![];
                         for meshes_array in mesh_children {
                             let mesh_array = meshes_array.array()?;
                             // 0 - "MESH"
                             // 1 - Array("MESHF")
-                            // 2 - Sub Material in Materials - DON'T KNOW HOW TO HANDLE YET TODO: LEARN
+                            // 2 - Sub Material for each face
                             // 3 - Index Buffer
-                            // TODO: Update below
-                            // 1 - Sub Material in Materials
-                            // 3 - Index Count
-                            // 4 - Index Buffer
 
-                            // let sub_material = mesh_array[1].int()?;
-                            // trace!("\tMesh - Sub_Material: {}", sub_material);
+                            // Only retrieve the first face's sub material id as texture for whole mesh
+                            let sub_material = mesh_array[2].array()?[0].int()?;
+                            trace!("\tMesh - Sub_Material: {}", sub_material);
 
                             let sub_mesh_children = mesh_array[1].array()?;
                             let mut sub_meshes = vec![];
@@ -385,13 +383,13 @@ impl BWX {
                                 } else {
                                     // MUST NOT HAPPEN
                                     error!("Vertex Count != UV Count !!! {}@{}", file ! (), line ! ());
-                                    panic!();
                                 }
                             }
 
                             // Index Count & Buffer
                             let index_buffer = mesh_array[3].array()?;
                             let index_count = index_buffer.len();
+                            debug!("Index Count: {}, face count: {}", index_count, index_count / 3);
 
                             if index_count % 3 != 0 {
                                 // Should not happen, as the index is for triangles
@@ -417,8 +415,8 @@ impl BWX {
                                 }
                             }
 
-                            // TODO: Implement sub material
-                            // meshes.push(Mesh { sub_material, sub_meshes, index_count, indices });
+                            let index_count = index_count as i32;
+                            meshes.push(Mesh { sub_material, sub_meshes, index_count, indices });
                         }
 
                         // debug!("{:#?}", mesh_array);
@@ -471,8 +469,7 @@ impl BWX {
                             }
                         }
 
-                        // TODO: push self objects
-                        // self.objects.push(Object { name: object_name, meshes, matrices });
+                        self.objects.push(Object { name: object_name, material, meshes, matrices });
 
                         // SFX Blocks?
                         // if object_array.len() > 9 {
@@ -480,7 +477,7 @@ impl BWX {
                         //     debug!("{:?}", object_array[9].array()?);
                         // }
                         if object_array.len() > 10 {
-                            warn!("---- WARN: Found block 11 in OBJ2, for weapon?\n{:?}", object_array[10].array() ? );
+                            warn!("---- WARN: Found block 11 in OBJ2, for weapon?\n{:?}", object_array[10].array()?);
                         }
                     }
                 }
@@ -651,7 +648,7 @@ impl BWX {
                             }
                         }
 
-                        self.objects.push(Object { name: object_name, meshes, matrices });
+                        self.objects.push(Object { name: object_name, material, meshes, matrices });
 
                         // SFX Blocks?
                         if object_array.len() > 9 {

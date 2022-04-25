@@ -324,7 +324,7 @@ impl BWX {
                             trace!("\tMesh - Sub_Material: {}", sub_material);
 
                             let sub_mesh_children = mesh_array[1].array()?;
-                            let mut sub_meshes = vec![];
+                            let mut sub_meshes: Vec<SubMesh> = vec![];
                             for sub_mesh_array in sub_mesh_children {
                                 let sub_mesh = sub_mesh_array.array()?;
                                 // 0 - "MESHF"
@@ -347,13 +347,12 @@ impl BWX {
                                         vertex_buffer.read_f32::<LittleEndian>()?,
                                     ];
                                     positions.push(position);
-                                    // vertices.push(Vertex { position, normal, tex_coord });
                                 }
 
                                 // Texture Coordinates
                                 let mut tex_coords = vec![];
-                                if sub_mesh.len() > 3 {
-                                    // Have UV data
+                                if sub_mesh.len() > 3 && timeline == 0 {
+                                    // Only the first vertex animation frame have UV data
                                     let uv_array = sub_mesh[3].array()?;
                                     for v in uv_array {
                                         let uv_buffer = v.data()?.clone();
@@ -365,9 +364,10 @@ impl BWX {
                                         tex_coords.push(tex_coord);
                                     }
                                 } else {
-                                    // TODO: Set UV from the first frame
-                                    error!("TODO: Set UV from the first frame {}@{}", file ! (), line ! ());
-                                    panic!();
+                                    // Copy UV data from first frame
+                                    tex_coords = sub_meshes[0].vertices.iter()
+                                        .map(|x| x.tex_coord.clone())
+                                        .collect();
                                 }
 
                                 // Generate sub meshes
@@ -382,14 +382,16 @@ impl BWX {
                                     sub_meshes.push(SubMesh { timeline, vertices });
                                 } else {
                                     // MUST NOT HAPPEN
-                                    error!("Vertex Count != UV Count !!! {}@{}", file ! (), line ! ());
+                                    error!("Vertex Count != UV Count !!! {}@{}", file!(), line!());
                                 }
                             }
 
                             // Index Count & Buffer
                             let index_buffer = mesh_array[3].array()?;
                             let index_count = index_buffer.len();
-                            debug!("Index Count: {}, face count: {}", index_count, index_count / 3);
+                            // Sub material counts == Face counts
+                            //   Sub material counts = mesh_array[2].array()?.len()
+                            //   Face counts = index_count / 3
 
                             if index_count % 3 != 0 {
                                 // Should not happen, as the index is for triangles
@@ -419,7 +421,6 @@ impl BWX {
                             meshes.push(Mesh { sub_material, sub_meshes, index_count, indices });
                         }
 
-                        // debug!("{:#?}", mesh_array);
                         // Matrices - MATRIX
                         let matrices_children = object_array[8].array()?;
                         let mut matrices = vec![];

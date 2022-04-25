@@ -101,6 +101,7 @@ pub struct SubMaterial {
 
 #[derive(Debug, Default)]
 pub struct Material {
+    pub name: String,
     pub sub_materials: Vec<SubMaterial>,
 }
 
@@ -267,7 +268,10 @@ impl BWX {
                             trace!("\tSub Material - Texture: {:?}", sub_material.filename);
                             sub_materials.push(sub_material);
                         }
-                        self.materials.push(Material { sub_materials });
+                        self.materials.push(Material {
+                            name: material_name,
+                            sub_materials,
+                        });
                     }
                 }
                 // TODO: Parse OBJ2 mesh data from SL1

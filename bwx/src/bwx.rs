@@ -366,8 +366,7 @@ impl BWX {
                                 } else {
                                     // Copy UV data from first frame
                                     tex_coords = sub_meshes[0].vertices.iter()
-                                        .map(|x| x.tex_coord.clone())
-                                        .collect();
+                                        .map(|x| x.tex_coord).collect();
                                 }
 
                                 // Generate sub meshes

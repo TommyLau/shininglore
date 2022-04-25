@@ -1,4 +1,5 @@
 use std::io::{Cursor, Read};
+use std::iter::zip;
 use std::path::Path;
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use tracing::{debug, error, info, trace, warn};
@@ -275,15 +276,214 @@ impl BWX {
                     }
                 }
                 // TODO: Parse OBJ2 mesh data from SL1
-                "OBJ2" => {
+                "OBJECT" | "OBJ2" => {
                     if children.is_empty() {
                         warn!("No data block found in {}", node_name);
                         continue;
                     }
 
-                    warn!("OBJ2 parsing needs to be implemented! {}@{}", file!(), line!());
+                    for object_children in children {
+                        let object_array = object_children.array()?;
+                        // 0 - "OBJ2"
+                        // 1 - Mesh Name
+                        // 2 - Unknown integer
+                        // 3 - Texture Group Index : -1 means no texture
+                        // 4, 5 - Unknown
+                        // 6 - 0x4D534858h("MSHX") or 0x4D4E4858h("MNHX")
+                        // TODO: ------ update below
+                        // 7 - Array("DXMESH")
+                        // 8 - Array("MATRIX")
+                        let object_name = object_array[1].string()?;
+                        let material = object_array[3].int()?;
+                        let mut direction = vec![];
+                        direction.write_i32::<BigEndian>(object_array[6].int()?)?;
+                        let direction = std::str::from_utf8(&direction).unwrap();
+                        trace!("Object: {}, Material: {}, Direction: {}", object_name, material, direction);
+
+                        {
+                            // Do not process special object starts with EV_ / EP_
+                            // FIXME: Enable later when process with collision detection and etc.
+                            if object_name.starts_with("EV_") || object_name.starts_with("EP_") {
+                                continue;
+                            }
+                        }
+
+                        // Meshes - MESH
+                        let mesh_children = object_array[7].array()?;
+                        // let mut meshes = vec![];
+                        for meshes_array in mesh_children {
+                            let mesh_array = meshes_array.array()?;
+                            // 0 - "MESH"
+                            // 1 - Array("MESHF")
+                            // 2 - Sub Material in Materials - DON'T KNOW HOW TO HANDLE YET TODO: LEARN
+                            // 3 - Index Buffer
+                            // TODO: Update below
+                            // 1 - Sub Material in Materials
+                            // 3 - Index Count
+                            // 4 - Index Buffer
+
+                            // let sub_material = mesh_array[1].int()?;
+                            // trace!("\tMesh - Sub_Material: {}", sub_material);
+
+                            let sub_mesh_children = mesh_array[1].array()?;
+                            let mut sub_meshes = vec![];
+                            for sub_mesh_array in sub_mesh_children {
+                                let sub_mesh = sub_mesh_array.array()?;
+                                // 0 - "MESHF"
+                                // 1 - VB Timer
+                                // 2 - Vertex Buffer
+                                // 3 - UV Mapping Buffer - Only in first frame!!!
+                                let timeline = sub_mesh[1].int()?;
+                                let vertex_array = sub_mesh[2].array()?;
+                                let vertex_count = vertex_array.len();
+                                trace!("\t\tSub_Mesh - Timeline: {}, Count: {}", timeline, vertex_count );
+
+                                // Vertex
+                                let mut positions = vec![];
+                                for v in vertex_array {
+                                    let vertex_buffer = v.data()?.clone();
+                                    let mut vertex_buffer = Cursor::new(vertex_buffer);
+                                    let position = [
+                                        vertex_buffer.read_f32::<LittleEndian>()?,
+                                        vertex_buffer.read_f32::<LittleEndian>()?,
+                                        vertex_buffer.read_f32::<LittleEndian>()?,
+                                    ];
+                                    positions.push(position);
+                                    // vertices.push(Vertex { position, normal, tex_coord });
+                                }
+
+                                // Texture Coordinates
+                                let mut tex_coords = vec![];
+                                if sub_mesh.len() > 3 {
+                                    // Have UV data
+                                    let uv_array = sub_mesh[3].array()?;
+                                    for v in uv_array {
+                                        let uv_buffer = v.data()?.clone();
+                                        let mut uv_buffer = Cursor::new(uv_buffer);
+                                        let tex_coord = [
+                                            uv_buffer.read_f32::<LittleEndian>()?,
+                                            uv_buffer.read_f32::<LittleEndian>()?,
+                                        ];
+                                        tex_coords.push(tex_coord);
+                                    }
+                                } else {
+                                    // TODO: Set UV from the first frame
+                                    error!("TODO: Set UV from the first frame {}@{}", file ! (), line ! ());
+                                    panic!();
+                                }
+
+                                // Generate sub meshes
+                                if positions.len() == tex_coords.len() {
+                                    let vertices: Vec<_> = zip(positions, tex_coords)
+                                        .map(|x| Vertex {
+                                            position: x.0,
+                                            normal: [0.0, 0.0, 0.0],
+                                            tex_coord: x.1,
+                                        })
+                                        .collect();
+                                    sub_meshes.push(SubMesh { timeline, vertices });
+                                } else {
+                                    // MUST NOT HAPPEN
+                                    error!("Vertex Count != UV Count !!! {}@{}", file ! (), line ! ());
+                                    panic!();
+                                }
+                            }
+
+                            // Index Count & Buffer
+                            let index_buffer = mesh_array[3].array()?;
+                            let index_count = index_buffer.len();
+
+                            if index_count % 3 != 0 {
+                                // Should not happen, as the index is for triangles
+                                error!("Index count incorrect!");
+                            }
+
+                            // And for HERO PNX, no matter how I change the index order
+                            // The mesh data with normals are incorrect, comment out the following code
+                            // and use only "DOUBLE SIDED" material? MAYBE...
+                            // TODO: Comment out the code or not?!
+                            let mut indices = vec![];
+                            if direction.starts_with("MSHX") {
+                                for i in (0..index_count).step_by(3) {
+                                    indices.push(index_buffer[i].int()? as u16);
+                                    let b = index_buffer[i + 1].int()? as u16;
+                                    let c = index_buffer[i + 2].int()? as u16;
+                                    indices.push(c);
+                                    indices.push(b);
+                                }
+                            } else {
+                                for i in index_buffer {
+                                    indices.push(i.int()? as u16);
+                                }
+                            }
+
+                            // TODO: Implement sub material
+                            // meshes.push(Mesh { sub_material, sub_meshes, index_count, indices });
+                        }
+
+                        // debug!("{:#?}", mesh_array);
+                        // Matrices - MATRIX
+                        let matrices_children = object_array[8].array()?;
+                        let mut matrices = vec![];
+                        for matrices_array in matrices_children {
+                            let matrix_array = matrices_array.array()?;
+                            // 0 - "MATRIX"
+                            // 1..n - Matrix
+                            trace!("\tMatrix - Count: {}", matrix_array.len() - 1);
+                            for m in matrix_array.iter().skip(1) {
+                                let mut buffer = Cursor::new(m.data()?.clone());
+                                // 0 - Timeline, based on 160, in u32
+                                // 1 ~ 16, 4x4 Matrix in f32, column-major order, for eg.
+                                // [0.9542446, -0.2165474, -0.103003055, 0.0]
+                                // [0.09967622, -0.026197463, 0.9785, 0.0]
+                                // [-0.21809866, -0.9594297, -0.0034697813, 0.0]
+                                // [3.17442, 16.080942, 53.538746, 1.0]
+                                // =>
+                                // |  0.9542446,    0.09967622,  -0.21809866,   3.17442   |
+                                // | -0.2165474,   -0.026197463, -0.9594297,    16.080942 |
+                                // | -0.103003055,  0.9785,      -0.0034697813, 53.538746 |
+                                // |  0.0,          0.0,          0.0,          1.0       |
+                                // 17 ~ 23, unknown data, for eg.
+                                // [1.0, 1.0, 1.0, -0.0013206453, 0.00029969783, 0.00014250366, 0.002762136]
+                                // Guessing: [1.0, 1.0, 1.0], scale factor ???
+                                // Left another Vec4(-0.0013206453, 0.00029969783, 0.00014250366, 0.002762136), hmm...
+                                let timeline = buffer.read_i32::<LittleEndian>()?;
+                                let matrix = [
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                    buffer.read_f32::<LittleEndian>()?,
+                                ];
+
+                                matrices.push(Matrix { timeline, matrix });
+                            }
+                        }
+
+                        // TODO: push self objects
+                        // self.objects.push(Object { name: object_name, meshes, matrices });
+
+                        // SFX Blocks?
+                        // if object_array.len() > 9 {
+                        // "VISB" and "FXNB" ?
+                        //     debug!("{:?}", object_array[9].array()?);
+                        // }
+                        if object_array.len() > 10 {
+                            warn!("---- WARN: Found block 11 in OBJ2, for weapon?\n{:?}", object_array[10].array() ? );
+                        }
+                    }
                 }
-                "OBJECT" => {}
                 "CAM" => {}
                 "LIGHT" => {}
                 "SOUND" => {}

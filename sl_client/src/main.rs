@@ -46,8 +46,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // let _c = b.load_from_file("../sl2_data/Graphic/MONSTER/MON059.PNX/MON059_ATTACKB.PNX")?;
 
     // Character: Hero Sandra
-    let _c = b.load_from_file("Assets/Graphic/NPC/WORLD01/HEROSANDRA.PNX/HEROSANDRA_DEFAULT.PNX")?;
+    let _c = b.load_from_file("Assets/Graphic/NPC/WORLD01/HEROSANDRA.PNX/HEROSANDRA_WALK.PNX")?;
     // let _c = b.load_from_file("../sl2_data/Graphic/NPC/WORLD01/HEROSANDRA.PNX/HEROSANDRA_DEFAULT.PNX")?;
+    // let _c = b.load_from_file("Assets/Graphic/NPC/WORLD01/HEROETO.PNX/HEROETO_WALK.PNX")?;
 
     // let _c = b.load_from_file("Assets/Graphic/INTERFACE/Login_infogirl.pnx/LOGIN_INFOGIRL_DEFAULTA.PNX")?;
 
@@ -135,7 +136,7 @@ fn save_gltf(bwx: &mut BWX) {
                 materials.push(json::Material {
                     alpha_cutoff: None,
                     alpha_mode: Default::default(),
-                    double_sided: false,
+                    double_sided: true,
                     name: Some(material_group.name.clone()),
                     pbr_metallic_roughness: json::material::PbrMetallicRoughness {
                         base_color_factor: Default::default(),
@@ -180,7 +181,7 @@ fn save_gltf(bwx: &mut BWX) {
             let sm = &m.sub_meshes[0];
             {
                 let mut buffer_view_index = buffer_views.len();
-                let accessor_index = accessors.len() as u32;
+                let mut accessor_index = accessors.len() as u32;
                 let mesh_index = meshes.len() as u32;
 
                 // Store the children
@@ -206,14 +207,17 @@ fn save_gltf(bwx: &mut BWX) {
                     attributes: {
                         let mut map = std::collections::HashMap::new();
                         map.insert(Valid(json::mesh::Semantic::Positions), json::Index::new(accessor_index));
+                        accessor_index += 1;
                         // TODO: Enable normal later
-                        map.insert(Valid(json::mesh::Semantic::Normals), json::Index::new(accessor_index + 1));
-                        map.insert(Valid(json::mesh::Semantic::TexCoords(0)), json::Index::new(accessor_index + 2));
+                        // map.insert(Valid(json::mesh::Semantic::Normals), json::Index::new(accessor_index ));
+                        // accessor_index += 1;
+                        map.insert(Valid(json::mesh::Semantic::TexCoords(0)), json::Index::new(accessor_index));
+                        accessor_index += 1;
                         map
                     },
                     extensions: Default::default(),
                     extras: Default::default(),
-                    indices: Some(json::Index::new(accessor_index + 3)),
+                    indices: Some(json::Index::new(accessor_index)),
                     material: if o.material < 0 { None } else {
                         Some(json::Index::new(sub_material.material_id))
                     },
@@ -244,9 +248,10 @@ fn save_gltf(bwx: &mut BWX) {
                     vertex_buffer.write_f32::<LittleEndian>(v.position[1]);
                     vertex_buffer.write_f32::<LittleEndian>(v.position[2]);
                     // TODO: "Write normal" but should not be used before programmed normal calculation
-                    vertex_buffer.write_f32::<LittleEndian>(v.normal[0]);
-                    vertex_buffer.write_f32::<LittleEndian>(v.normal[1]);
-                    vertex_buffer.write_f32::<LittleEndian>(v.normal[2]);
+                    // Disable normal output
+                    // vertex_buffer.write_f32::<LittleEndian>(v.normal[0]);
+                    // vertex_buffer.write_f32::<LittleEndian>(v.normal[1]);
+                    // vertex_buffer.write_f32::<LittleEndian>(v.normal[2]);
                     // Write texture coordinate
                     vertex_buffer.write_f32::<LittleEndian>(v.tex_coord[0]);
                     vertex_buffer.write_f32::<LittleEndian>(v.tex_coord[1]);
@@ -285,18 +290,23 @@ fn save_gltf(bwx: &mut BWX) {
                 };
                 accessors.push(accessor.clone());
 
+                // TODO: Enable normal
                 // Normal
-                accessor.byte_offset = (3 * mem::size_of::<f32>()) as u32;
+                // accessor.byte_offset = (3 * mem::size_of::<f32>()) as u32;
                 accessor.min = None;
                 accessor.max = None;
-                accessors.push(accessor.clone());
+                // accessors.push(accessor.clone());
 
                 // Texture Coordinate
-                accessor.byte_offset = (6 * mem::size_of::<f32>()) as u32;
+                accessor.byte_offset = (3 * mem::size_of::<f32>()) as u32;
+                // accessor.byte_offset = (6 * mem::size_of::<f32>()) as u32;
+                // Changed value to 3 since there's no normal data
                 accessor.type_ = Valid(json::accessor::Type::Vec2);
                 accessors.push(accessor.clone());
 
-                let vertex_size = 8 * mem::size_of::<f32>();
+                let vertex_size = 5 * mem::size_of::<f32>();
+                // Changed value to 5 since there's no normal data
+                // let vertex_size = 8 * mem::size_of::<f32>();
                 let mut buffer_view = json::buffer::View {
                     buffer: json::Index::new(0),
                     byte_length: vertex_buffer.get_ref().len() as u32,
@@ -565,6 +575,25 @@ fn save_gltf(bwx: &mut BWX) {
     };
      */
 
+    let root_node_index = nodes.len() as u32;
+    let node = json::Node {
+        camera: None,
+        children: Some(scene_nodes),
+        extensions: Default::default(),
+        extras: Default::default(),
+        matrix: None,
+        mesh: None,
+        name: Some("Root".into()),
+        // Rotate -90 degrees along X axis
+        rotation: Some(json::scene::UnitQuaternion([-0.707, 0.0, 0.0, 0.707])),
+        // Scale to 0.1
+        scale: Some([0.1, 0.1, 0.1].into()),
+        translation: None,
+        skin: None,
+        weights: None,
+    };
+    nodes.push(node);
+
     let root = json::Root {
         asset,
         scene: Some(json::Index::new(0)),
@@ -572,7 +601,8 @@ fn save_gltf(bwx: &mut BWX) {
             extensions: Default::default(),
             extras: Default::default(),
             name: Some("Scene".into()),
-            nodes: scene_nodes,
+            // nodes: scene_nodes,
+            nodes: vec![json::Index::new(root_node_index)],
         }],
         nodes,
         meshes,

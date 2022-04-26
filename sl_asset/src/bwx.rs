@@ -98,6 +98,10 @@ pub struct SubMaterial {
     pub specular: i32,
     pub highlight: f32,
     pub filename: Option<String>,
+    // Whether this material has been saved fot glTF output
+    pub used: bool,
+    // The glTF material ID for this sub material
+    pub material_id: u32,
 }
 
 #[derive(Debug, Default)]
@@ -108,39 +112,39 @@ pub struct Material {
 
 #[derive(Debug, Default)]
 pub struct Vertex {
-    position: [f32; 3],
-    normal: [f32; 3],
-    tex_coord: [f32; 2],
+    pub position: [f32; 3],
+    pub normal: [f32; 3],
+    pub tex_coord: [f32; 2],
 }
 
 // Block 'DXMESHF'
 #[derive(Debug, Default)]
 pub struct SubMesh {
-    timeline: i32,
-    vertices: Vec<Vertex>,
+    pub timeline: i32,
+    pub vertices: Vec<Vertex>,
 }
 
 // Block 'DXMESH'
 #[derive(Debug, Default)]
 pub struct Mesh {
-    sub_material: i32,
-    sub_meshes: Vec<SubMesh>,
-    index_count: i32,
-    indices: Vec<u16>,
+    pub sub_material: i32,
+    pub sub_meshes: Vec<SubMesh>,
+    pub index_count: i32,
+    pub indices: Vec<u16>,
 }
 
 #[derive(Debug, Default)]
 pub struct Matrix {
-    timeline: i32,
-    matrix: [f32; 16],
+    pub timeline: i32,
+    pub matrix: [f32; 16],
 }
 
 #[derive(Debug, Default)]
 pub struct Object {
-    name: String,
-    material: i32,
-    meshes: Vec<Mesh>,
-    matrices: Vec<Matrix>,
+    pub name: String,
+    pub material: i32,
+    pub meshes: Vec<Mesh>,
+    pub matrices: Vec<Matrix>,
 }
 
 #[derive(Debug, Default)]
@@ -266,6 +270,7 @@ impl BWX {
                                 } else {
                                     None
                                 },
+                                ..Default::default()
                             };
                             trace!("\tSub Material - Texture: {:?}", sub_material.filename);
                             sub_materials.push(sub_material);

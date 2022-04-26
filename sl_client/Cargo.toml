@@ -6,8 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-#sl_asset = { path = "../sl_asset", version = "0.1.0" }
 sl = { path = "../sl", version = "0.1.0" }
 tracing = "0.1.32"
 tracing-subscriber = { version = "0.3.9", features = ["env-filter"] }
 gltf = "1.0.0"
+byteorder = "1.4.3"
+serde_json = "1.0.79"

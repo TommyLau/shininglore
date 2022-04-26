@@ -1,4 +1,4 @@
-use std::io::{Cursor, Read};
+use std::io::{BufRead, BufReader, Cursor, Read};
 use std::iter::zip;
 use std::path::Path;
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
@@ -187,7 +187,25 @@ impl BWX {
         where T: AsRef<Path>
     {
         info!("{}", filename.as_ref().display());
-        let oname = filename.as_ref().to_owned();
+        let mut patch_file = filename.as_ref().to_owned();
+        patch_file.pop();
+        patch_file.push("Patch.txt");
+        debug!("Here ------: {:#?}", patch_file);
+        let patches = if patch_file.exists() {
+            BufReader::new(std::fs::File::open(patch_file).unwrap())
+                .lines()
+                .map(|x|
+                    if let Ok(s) = x {
+                        let r = s.trim();
+                        if r.starts_with("#") {
+                            "".into()
+                        } else { r.to_owned().to_uppercase() }
+                    } else {
+                        "".into()
+                    })
+                .filter(|x| !x.is_empty()).collect()
+        } else { vec![] };
+        debug!("Patch contents: {:#?}", patches);
 
         let data = std::fs::read(filename.as_ref())?;
         self.content = Cursor::new(data);
@@ -407,7 +425,14 @@ impl BWX {
                             // and use only "DOUBLE SIDED" material? MAYBE...
                             // TODO: Comment out the code or not?!
                             let mut indices = vec![];
-                            if direction.starts_with("MSHX") {
+
+                            let mut direction_flip = direction.starts_with("MSHX");
+                            if patches.contains(&object_name.to_uppercase()) {
+                                debug!("Patching '{}'", object_name);
+                                direction_flip = !direction_flip;
+                            }
+
+                            if direction_flip {
                                 for i in (0..index_count).step_by(3) {
                                     indices.push(index_buffer[i].int()? as u16);
                                     let b = index_buffer[i + 1].int()? as u16;

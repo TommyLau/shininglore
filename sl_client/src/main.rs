@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // let _c = b.load_from_file("HEROSANDRA_DEFAULT.PNX")?;
     // let _c = b.load_from_file("HEROETO_DEFAULT.PNX")?;
     // let _c = b.load_from_file("MON001_DEFAULTA.PNX")?;
-    let _c = b.load_from_file("Assets/Graphic/MONSTER/MON001.PNX/MON001_DEFAULTA.PNX")?;
+    // let _c = b.load_from_file("Assets/Graphic/MONSTER/MON001.PNX/MON001_DEFAULTA.PNX")?;
     // let _c = b.load_from_file("Assets/Graphic/INTERFACE/Login_stage.pnx/LOGIN_STAGE_DEFAULT.PNX")?;
 
     // Vertex Animation Test Case
@@ -46,7 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // let _c = b.load_from_file("../sl2_data/Graphic/MONSTER/MON059.PNX/MON059_ATTACKB.PNX")?;
 
     // Character: Hero Sandra
-    // let _c = b.load_from_file("Assets/Graphic/NPC/WORLD01/HEROSANDRA.PNX/HEROSANDRA_DEFAULT.PNX")?;
+    let _c = b.load_from_file("Assets/Graphic/NPC/WORLD01/HEROSANDRA.PNX/HEROSANDRA_DEFAULT.PNX")?;
     // let _c = b.load_from_file("../sl2_data/Graphic/NPC/WORLD01/HEROSANDRA.PNX/HEROSANDRA_DEFAULT.PNX")?;
 
     // let _c = b.load_from_file("Assets/Graphic/INTERFACE/Login_infogirl.pnx/LOGIN_INFOGIRL_DEFAULTA.PNX")?;
@@ -230,7 +230,6 @@ fn save_gltf(bwx: &mut BWX) {
                     primitives: vec![primitive],
                     weights: None,
                 };
-                debug!("{:#?}", mesh);
                 meshes.push(mesh);
 
                 // Vertex
@@ -401,7 +400,6 @@ fn save_gltf(bwx: &mut BWX) {
                     // let scale = [s[0], s[2], s[1]];
 
                     let (translation, rotation, scale) = m.decomposed();
-                    debug!("T: {:.2}, {:?}, {:?}, {:?}", timeline, translation, rotation, scale);
                     // Write timeline, translation, rotation and scale to buffer
                     // Could use system's array.as_bytes, but cannot ensure when running on big endian system
                     // So use the old school byteorder method

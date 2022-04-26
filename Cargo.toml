@@ -1,5 +1,6 @@
 [workspace]
 members = [
-    "client",
-    "bwx",
+    "sl_asset",
+    "sl_client",
+    "sl",
 ]

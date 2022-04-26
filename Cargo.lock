@@ -874,7 +874,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "sl-bwx"
+name = "sl"
+version = "0.1.0"
+dependencies = [
+ "sl_asset",
+]
+
+[[package]]
+name = "sl_asset"
 version = "0.1.0"
 dependencies = [
  "byteorder",
@@ -890,11 +897,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "sl-client"
+name = "sl_client"
 version = "0.1.0"
 dependencies = [
  "gltf",
- "sl-bwx",
+ "sl",
  "tracing",
  "tracing-subscriber",
 ]

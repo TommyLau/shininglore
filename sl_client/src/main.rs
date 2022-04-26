@@ -1,4 +1,4 @@
-use bwx::BWX;
+use sl::BWX;
 use tracing::Level;
 use tracing_subscriber::filter::EnvFilter;
 

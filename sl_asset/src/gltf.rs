@@ -7,6 +7,7 @@ use tracing::{debug, error, Level};
 use gltf::json::{self, validation::Checked::Valid};
 use serde_json::json;
 use std::path::Path;
+use gltf::accessor::Dimensions::Scalar;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -115,7 +116,7 @@ impl Gltf {
                 // for sm in &m.sub_meshes
                 let sm = &m.sub_meshes[0];
                 {
-                    let mut buffer_view_index = self.buffer_views.len();
+                    let mut buffer_view_index = self.buffer_views.len() as u32;
                     let mut accessor_index = self.accessors.len() as u32;
                     let mesh_index = self.meshes.len() as u32;
 
@@ -170,22 +171,16 @@ impl Gltf {
                     }
                     debug!("Min = {:?}, Max = {:?}", v_min, v_max);
 
-                    let mut accessor = json::Accessor {
-                        buffer_view: Some(json::Index::new(buffer_view_index as u32)),
-                        byte_offset: 0,
-                        count: sm.vertices.len() as u32,
-                        component_type: Valid(json::accessor::GenericComponentType(
-                            json::accessor::ComponentType::F32
-                        )),
-                        extensions: None,
-                        extras: Default::default(),
-                        type_: Valid(json::accessor::Type::Vec3),
-                        min: Some(json!(v_min)),
-                        max: Some(json!(v_max)),
-                        name: None,
-                        normalized: false,
-                        sparse: None,
-                    };
+                    let mut accessor = prepare_json_accessor(
+                        buffer_view_index,
+                        0,
+                        sm.vertices.len() as u32,
+                        json::accessor::ComponentType::F32,
+                        json::accessor::Type::Vec3,
+                        Some(json!(v_min)),
+                        Some(json!(v_max)),
+                        None,
+                    );
                     self.accessors.push(accessor.clone());
 
                     // TODO: Enable normal
@@ -218,24 +213,18 @@ impl Gltf {
                     self.buffer_views.push(buffer_view.clone());
 
                     // Index Buffer ------------------
-                    buffer_view_index = self.buffer_views.len();
+                    buffer_view_index = self.buffer_views.len() as u32;
                     // Accessor for index
-                    let accessor = json::Accessor {
-                        buffer_view: Some(json::Index::new(buffer_view_index as u32)),
-                        byte_offset: 0,
-                        count: m.indices.len() as u32,
-                        component_type: Valid(json::accessor::GenericComponentType(
-                            json::accessor::ComponentType::U16
-                        )),
-                        extensions: None,
-                        extras: Default::default(),
-                        type_: Valid(json::accessor::Type::Scalar),
-                        min: None,
-                        max: None,
-                        name: None,
-                        normalized: false,
-                        sparse: None,
-                    };
+                    let accessor = prepare_json_accessor(
+                        buffer_view_index,
+                        0,
+                        m.indices.len() as u32,
+                        json::accessor::ComponentType::U16,
+                        json::accessor::Type::Scalar,
+                        None,
+                        None,
+                        Some(o.name.clone() + "_Index"),
+                    );
                     self.accessors.push(accessor);
                     // Index bufferView
                     // buffer_view_index = self.buffer_views.len();
@@ -300,7 +289,7 @@ impl Gltf {
                     self.buffer.append(o_buffer.get_mut());
 
                     // Prepare bufferView
-                    let buffer_view_index = self.buffer_views.len();
+                    let buffer_view_index = self.buffer_views.len() as u32;
                     let buffer_view = json::buffer::View {
                         buffer: json::Index::new(0),
                         byte_length: length as u32,
@@ -317,40 +306,30 @@ impl Gltf {
                     let animation_count = o.matrices.len() as u32;
                     // Accessor for timeline
                     let accessor_index = self.accessors.len();
-                    let accessor = json::Accessor {
-                        buffer_view: Some(json::Index::new(buffer_view_index as u32)),
-                        byte_offset: 0,
-                        count: animation_count,
-                        component_type: Valid(json::accessor::GenericComponentType(
-                            json::accessor::ComponentType::F32)),
-                        extensions: None,
-                        extras: Default::default(),
-                        type_: Valid(json::accessor::Type::Scalar),
-                        min: Some(json!([0.0f32])),
-                        max: Some(json!([timeline_max])),
-                        name: Some(o.name.clone() + "_Timeline"),
-                        normalized: false,
-                        sparse: None,
-                    };
+                    let accessor = prepare_json_accessor(
+                        buffer_view_index,
+                        0,
+                        animation_count,
+                        json::accessor::ComponentType::F32,
+                        json::accessor::Type::Scalar,
+                        Some(json!([0.0f32])),
+                        Some(json!([timeline_max])),
+                        Some(o.name.clone() + "_Timeline"),
+                    );
                     self.accessors.push(accessor);
                     debug!("bufferView: {}", buffer_view_index);
 
                     // Accessor for Translation
-                    let mut accessor = json::Accessor {
-                        buffer_view: Some(json::Index::new(buffer_view_index as u32)),
-                        byte_offset: mem::size_of::<f32>() as u32,
-                        count: animation_count,
-                        component_type: Valid(json::accessor::GenericComponentType(
-                            json::accessor::ComponentType::F32)),
-                        extensions: None,
-                        extras: Default::default(),
-                        type_: Valid(json::accessor::Type::Vec3),
-                        min: None,
-                        max: None,
-                        name: Some(o.name.clone() + "_Translation"),
-                        normalized: false,
-                        sparse: None,
-                    };
+                    let mut accessor = prepare_json_accessor(
+                        buffer_view_index,
+                        mem::size_of::<f32>() as u32,
+                        animation_count,
+                        json::accessor::ComponentType::F32,
+                        json::accessor::Type::Vec3,
+                        None,
+                        None,
+                        Some(o.name.clone() + "_Translation"),
+                    );
                     self.accessors.push(accessor.clone());
                     // Accessor for Rotation
                     accessor.byte_offset = (1 + 3) * mem::size_of::<f32>() as u32;
@@ -616,5 +595,26 @@ fn prepare_json_mesh(primitive: json::mesh::Primitive) -> json::Mesh {
         name: None,
         primitives: vec![primitive],
         weights: None,
+    }
+}
+
+fn prepare_json_accessor(buffer_view_index: u32, byte_offset: u32, count: u32,
+                         component_type: json::accessor::ComponentType, type_: json::accessor::Type,
+                         min: Option<serde_json::value::Value>, max: Option<serde_json::value::Value>,
+                         name: Option<String>,
+) -> json::Accessor {
+    json::Accessor {
+        buffer_view: Some(json::Index::new(buffer_view_index)),
+        byte_offset,
+        count,
+        component_type: Valid(json::accessor::GenericComponentType(component_type)),
+        extensions: None,
+        extras: Default::default(),
+        type_: Valid(type_),
+        min,
+        max,
+        name,
+        normalized: false,
+        sparse: None,
     }
 }

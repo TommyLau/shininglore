@@ -83,8 +83,8 @@ impl Gltf {
                     sub_material.used = true;
                     sub_material.material_id = self.materials.len() as u32;
 
-                    // Have texture
                     let base_color_texture = if sub_material.filename.is_some() {
+                        // Have texture
                         let texture_index = self.textures.len() as u32;
                         let image_index = self.images.len() as u32;
                         let image = prepare_json_image(sub_material.filename.clone());
@@ -95,7 +95,6 @@ impl Gltf {
                     } else { None };
 
                     let material = prepare_json_material(&material_group.name, base_color_texture);
-
                     self.materials.push(material);
                 }
 
@@ -122,20 +121,7 @@ impl Gltf {
 
                     // Store the children
                     node_index.push(self.nodes.len() as u32);
-                    let node = json::Node {
-                        camera: None,
-                        children: None,
-                        extensions: Default::default(),
-                        extras: Default::default(),
-                        matrix: None,
-                        mesh: Some(json::Index::new(mesh_index)),
-                        name: None,
-                        rotation: None,
-                        scale: None,
-                        translation: None,
-                        skin: None,
-                        weights: None,
-                    };
+                    let node = prepare_json_node(mesh_index);
                     self.nodes.push(node);
 
                     // Mesh - Primitive
@@ -607,5 +593,22 @@ fn prepare_json_material(material_name: &str, base_color_texture: Option<json::t
         emissive_factor: Default::default(),
         extensions: None,
         extras: Default::default(),
+    }
+}
+
+fn prepare_json_node(mesh_index: u32) -> json::Node {
+    json::Node {
+        camera: None,
+        children: None,
+        extensions: Default::default(),
+        extras: Default::default(),
+        matrix: None,
+        mesh: Some(json::Index::new(mesh_index)),
+        name: None,
+        rotation: None,
+        scale: None,
+        translation: None,
+        skin: None,
+        weights: None,
     }
 }

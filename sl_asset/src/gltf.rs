@@ -131,16 +131,7 @@ impl Gltf {
                         if o.material < 0 { None } else {
                             Some(sub_material.material_id)
                         });
-
-                    let mesh = json::Mesh {
-                        extensions: Default::default(),
-                        extras: Default::default(),
-                        // name: Some(o.name.clone() + "_Mesh"),
-                        // As a mesh group, no name is giving to the mesh but the object
-                        name: None,
-                        primitives: vec![primitive],
-                        weights: None,
-                    };
+                    let mesh = prepare_json_mesh(primitive);
                     self.meshes.push(mesh);
 
                     // Vertex
@@ -614,5 +605,16 @@ fn prepare_json_mesh_primitive(accessor_index: u32, indices_index: u32, material
         material: if let Some(m) = material_id { Some(json::Index::new(m)) } else { None },
         mode: Valid(json::mesh::Mode::Triangles),
         targets: None,
+    }
+}
+
+fn prepare_json_mesh(primitive: json::mesh::Primitive) -> json::Mesh {
+    json::Mesh {
+        extensions: Default::default(),
+        extras: Default::default(),
+        // As a mesh group, no name is giving to the mesh but the object
+        name: None,
+        primitives: vec![primitive],
+        weights: None,
     }
 }

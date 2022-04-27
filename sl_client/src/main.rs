@@ -140,9 +140,9 @@ fn save_gltf(bwx: &mut BWX) {
                     name: Some(material_group.name.clone()),
                     pbr_metallic_roughness: json::material::PbrMetallicRoughness {
                         base_color_factor: Default::default(),
-                        base_color_texture: color_texture,
-                        metallic_factor: Default::default(),
-                        roughness_factor: Default::default(),
+                        base_color_texture: color_texture.clone(),
+                        metallic_factor: json::material::StrengthFactor(0.0),
+                        roughness_factor: json::material::StrengthFactor(1.0),
                         metallic_roughness_texture: None,
                         extensions: None,
                         extras: Default::default(),
@@ -152,6 +152,31 @@ fn save_gltf(bwx: &mut BWX) {
                     emissive_texture: None,
                     emissive_factor: Default::default(),
                     extensions: None,
+                    // "KHR_materials_pbrSpecularGlossiness" extension
+                    /*
+                    extensions: Some(json::extensions::material::Material {
+                        pbr_specular_glossiness: Some(json::extensions::material::PbrSpecularGlossiness {
+                            diffuse_factor: Default::default(),
+                            diffuse_texture: color_texture,
+                            specular_factor: json::extensions::material::PbrSpecularFactor([0.0, 0.0, 0.0]),
+                            glossiness_factor: json::material::StrengthFactor(0.0),
+                            specular_glossiness_texture: None,
+                            extras: Default::default(),
+                        })
+                    }),
+                     */
+                    // Not working due to glTF 1.0.0 bug that cannot enable "KHR_materials_specular"
+                    /*
+                    extensions: Some(json::extensions::material::Material {
+                        specular: Some(json::extensions::material::Specular {
+                            specular_factor: json::extensions::material::SpecularFactor(0.0),
+                            specular_texture: None,
+                            specular_color_factor: Default::default(),
+                            specular_color_texture: None,
+                            extras: (),
+                        })
+                    }),
+                     */
                     extras: Default::default(),
                 });
             }

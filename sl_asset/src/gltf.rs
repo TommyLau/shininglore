@@ -83,32 +83,14 @@ impl Gltf {
                     sub_material.material_id = self.materials.len() as u32;
 
                     // Have texture
-                    let color_texture = if sub_material.filename.is_some() {
+                    let base_color_texture = if sub_material.filename.is_some() {
                         let texture_index = self.textures.len() as u32;
                         let image_index = self.images.len() as u32;
-                        let image = json::Image {
-                            buffer_view: None,
-                            mime_type: None,
-                            name: None,
-                            uri: sub_material.filename.clone(),
-                            extensions: None,
-                            extras: Default::default(),
-                        };
+                        let image = prepare_json_image(sub_material.filename.clone());
                         self.images.push(image);
-                        let texture = json::Texture {
-                            name: None,
-                            sampler: None,
-                            source: json::Index::new(image_index),
-                            extensions: None,
-                            extras: Default::default(),
-                        };
+                        let texture = prepare_json_texture(image_index);
                         self.textures.push(texture);
-                        Some(json::texture::Info {
-                            index: json::Index::new(texture_index),
-                            tex_coord: 0, // Only have texture_0 now
-                            extensions: None,
-                            extras: Default::default(),
-                        })
+                        Some(prepare_json_texture_info(texture_index))
                     } else { None };
 
                     self.materials.push(json::Material {
@@ -118,7 +100,7 @@ impl Gltf {
                         name: Some(material_group.name.clone()),
                         pbr_metallic_roughness: json::material::PbrMetallicRoughness {
                             base_color_factor: Default::default(),
-                            base_color_texture: color_texture.clone(),
+                            base_color_texture,
                             metallic_factor: json::material::StrengthFactor(0.0),
                             roughness_factor: json::material::StrengthFactor(1.0),
                             metallic_roughness_texture: None,
@@ -611,5 +593,35 @@ fn buffer_padding(buffer: &mut Cursor<Vec<u8>>) {
         for _ in 0..padding {
             buffer.write_u8(0);
         }
+    }
+}
+
+fn prepare_json_image(filename: Option<String>) -> json::Image {
+    json::Image {
+        buffer_view: None,
+        mime_type: None,
+        name: None,
+        uri: filename,
+        extensions: None,
+        extras: Default::default(),
+    }
+}
+
+fn prepare_json_texture(image_index: u32) -> json::Texture {
+    json::Texture {
+        name: None,
+        sampler: None,
+        source: json::Index::new(image_index),
+        extensions: None,
+        extras: Default::default(),
+    }
+}
+
+fn prepare_json_texture_info(texture_index: u32) -> json::texture::Info {
+    json::texture::Info {
+        index: json::Index::new(texture_index),
+        tex_coord: 0, // Only have texture_0 now
+        extensions: None,
+        extras: Default::default(),
     }
 }

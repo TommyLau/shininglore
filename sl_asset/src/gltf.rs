@@ -165,14 +165,7 @@ impl Gltf {
                     index_buffer.write_u16::<LittleEndian>(*i);
                 }
                 // Index buffer might need padding when using u16 (2 bytes)
-                let index_buffer_length = index_buffer.get_ref().len();
-                let padding = ((index_buffer_length + 3) & !3) - index_buffer_length;
-                if padding > 0 {
-                    debug!("============Padding: {}", padding);
-                    for _ in 0..padding {
-                        index_buffer.write_u8(0);
-                    }
-                }
+                buffer_padding(&mut index_buffer);
 
                 // Process Vertex Buffer
                 if m.sub_meshes.len() > 1 {
@@ -587,8 +580,13 @@ impl Gltf {
 
         let j = json::serialize::to_string_pretty(&root).expect("OK");
 
-        std::fs::write(oname.clone() + ".gltf", j.as_bytes());
-        std::fs::write(oname + ".bin", self.buffer.clone());
+        std::fs::write("./tmp/".to_owned() + &oname + ".gltf", j.as_bytes());
+        std::fs::write("./tmp/".to_owned() + &oname + ".bin", self.buffer.clone());
+    }
+
+    fn buffer_append(&mut self) -> Result<()>
+    {
+        Ok(())
     }
 }
 
@@ -603,4 +601,15 @@ fn matrix_decomposed(matrix: &[f32; 16]) -> ([f32; 3], [f32; 4], [f32; 3]) {
         ]
     };
     matrix.decomposed()
+}
+
+/// Buffer padding to 4 bytes alignment
+fn buffer_padding(buffer: &mut Cursor<Vec<u8>>) {
+    let buffer_length = buffer.get_ref().len();
+    let padding = ((buffer_length + 3) & !3) - buffer_length;
+    if padding > 0 {
+        for _ in 0..padding {
+            buffer.write_u8(0);
+        }
+    }
 }

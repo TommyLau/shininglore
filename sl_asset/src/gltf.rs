@@ -7,6 +7,7 @@ use tracing::{debug, error};
 use gltf::json::{self, validation::Checked::Valid};
 use serde_json::json;
 use std::path::Path;
+use image::GenericImageView;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -57,7 +58,8 @@ impl Gltf {
         Ok(())
     }
 
-    pub fn save_gltf(&mut self) -> Result<()> {
+    pub fn save_gltf<T>(&mut self, output_path: T) -> Result<()>
+        where T: AsRef<Path> {
         for o in &self.bwx.objects {
             debug!("Name: {:?}, Material: {}", o.name, o.material);
             for m in &o.meshes {
@@ -426,8 +428,48 @@ impl Gltf {
 
         let j = json::serialize::to_string_pretty(&root).expect("OK");
 
-        std::fs::write("./tmp/".to_owned() + &scene_name + ".gltf", j.as_bytes())?;
-        std::fs::write("./tmp/".to_owned() + &scene_name + ".bin", self.buffer.clone())?;
+        let path = output_path.as_ref();
+        if !path.exists() {
+            std::fs::create_dir_all(path)?;
+        }
+
+        let filename = path.join(&scene_name);
+        let file_gltf = filename.with_extension("gltf");
+        let file_bin = filename.with_extension("bin");
+        debug!("ext: {:#?}, bin: {:#?}", file_gltf, file_bin);
+
+        std::fs::write(file_gltf, j.as_bytes())?;
+        std::fs::write(file_bin, self.buffer.clone())?;
+
+        // Convert textures
+        for m in &self.images {
+            if let Some(texture) = &m.uri {
+                let file = path.join(texture);
+                if file.exists() {
+                    continue;
+                }
+
+                let tga_file = std::path::PathBuf::from(texture).with_extension("TGA");
+                let mut paths = vec![];
+                paths.push(self.filename.parent().unwrap().join(""));
+                paths.push(self.filename.parent().unwrap().parent().unwrap().join("TGA"));
+                paths.push(std::path::PathBuf::from("Assets/Graphic/PROPIN/WORLD01/TGA"));
+                paths.push(std::path::PathBuf::from("Assets/Graphic/BUILDINGEX/WORLD01/TGA"));
+                let files: Vec<_> = paths.iter().map(|x| x.join(&tga_file)).collect();
+
+                let p = files.iter().filter(|x| x.exists()).next();
+                if let Some(p) = p {
+                    debug!("Found TGA at '{}'", p.display());
+                    let img = image::open(p)?.flipv();
+                    // The dimensions and color
+                    debug!("\tdimensions: {:?}, color: {:?}", img.dimensions(), img.color());
+                    // Write the contents of this image to the Writer in PNG format.
+                    img.save(file)?;
+                } else {
+                    debug!("NOT FOUND! {}", tga_file.display());
+                }
+            }
+        }
 
         Ok(())
     }
@@ -491,6 +533,7 @@ fn prepare_json_texture_info(texture_index: u32) -> json::texture::Info {
 fn prepare_json_material(material_name: &str, base_color_texture: Option<json::texture::Info>) -> json::Material {
     json::Material {
         alpha_cutoff: None,
+        // TODO: Update to Alpha Blend when texture is RGBA format
         alpha_mode: Default::default(),
         // Because the normal faces' error, use double sided texture
         double_sided: true,
@@ -610,7 +653,6 @@ fn prepare_json_animation_channel(sampler: u32, node: u32, path: json::animation
 
 fn prepare_json_buffer_view(byte_length: u32, byte_offset: Option<u32>, byte_stride: Option<u32>, name: Option<String>,
                             target: Option<json::validation::Checked<json::buffer::Target>>) -> json::buffer::View {
-    debug!("byte_length: {}", byte_length);
     json::buffer::View {
         // Only one binary buffer, so always 0
         buffer: json::Index::new(0),

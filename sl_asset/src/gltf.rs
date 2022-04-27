@@ -357,19 +357,7 @@ impl Gltf {
                     // Store index buffer to binary
                     self.buffer.append(index_buffer.get_mut());
 
-                    let matrix = o.matrices[0].matrix.clone();
-                    let matrix = gltf::scene::Transform::Matrix {
-                        matrix: [
-                            [matrix[0], matrix[1], matrix[2], matrix[3]],
-                            [matrix[4], matrix[5], matrix[6], matrix[7]],
-                            [matrix[8], matrix[9], matrix[10], matrix[11]],
-                            [matrix[12], matrix[13], matrix[14], matrix[15]],
-                        ]
-                    };
-                    let (translation, rotation, scale) = matrix.decomposed();
-                    // let translation = [t[0], -t[2], t[1]];
-                    // let rotation = [r[0], -r[2], r[1], r[3]];
-                    // let scale = [s[0], s[2], s[1]];
+                    let (translation, rotation, scale) = matrix_decomposed(&o.matrices[0].matrix);
 
                     // Store the node for Scene
                     let node_count = self.nodes.len() as u32;
@@ -398,21 +386,7 @@ impl Gltf {
                     let mut o_buffer = Cursor::new(vec![]);
                     for mm in &o.matrices {
                         let timeline = mm.timeline as f32 / 3600.0;
-                        let m = mm.matrix.clone();
-                        let m = gltf::scene::Transform::Matrix {
-                            matrix: [
-                                [m[0], m[1], m[2], m[3]],
-                                [m[4], m[5], m[6], m[7]],
-                                [m[8], m[9], m[10], m[11]],
-                                [m[12], m[13], m[14], m[15]],
-                            ]
-                        };
-                        // let (translation, rotation, scale) = m.decomposed();
-                        // let translation = [t[0], -t[2], t[1]];
-                        // let rotation = [r[0], -r[2], r[1], r[3]];
-                        // let scale = [s[0], s[2], s[1]];
-
-                        let (translation, rotation, scale) = m.decomposed();
+                        let (translation, rotation, scale) = matrix_decomposed(&mm.matrix);
                         // Write timeline, translation, rotation and scale to buffer
                         // Could use system's array.as_bytes, but cannot ensure when running on big endian system
                         // So use the old school byteorder method
@@ -592,7 +566,7 @@ impl Gltf {
                 // nodes: scene_nodes,
                 nodes: vec![json::Index::new(root_node_index)],
             }],
-            nodes:self.nodes.clone(),
+            nodes: self.nodes.clone(),
             meshes: self.meshes.clone(),
             accessors: self.accessors.clone(),
             buffer_views: self.buffer_views.clone(),
@@ -616,4 +590,17 @@ impl Gltf {
         std::fs::write(oname.clone() + ".gltf", j.as_bytes());
         std::fs::write(oname + ".bin", self.buffer.clone());
     }
+}
+
+/// Decompose matrix
+fn matrix_decomposed(matrix: &[f32; 16]) -> ([f32; 3], [f32; 4], [f32; 3]) {
+    let matrix = gltf::scene::Transform::Matrix {
+        matrix: [
+            [matrix[0], matrix[1], matrix[2], matrix[3]],
+            [matrix[4], matrix[5], matrix[6], matrix[7]],
+            [matrix[8], matrix[9], matrix[10], matrix[11]],
+            [matrix[12], matrix[13], matrix[14], matrix[15]],
+        ]
+    };
+    matrix.decomposed()
 }

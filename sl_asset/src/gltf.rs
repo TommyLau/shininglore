@@ -122,7 +122,9 @@ impl Gltf {
 
                     // Store the children
                     node_index.push(self.nodes.len() as u32);
-                    let node = prepare_json_node(mesh_index);
+                    let node = prepare_json_node(
+                        None, Some(json::Index::new(mesh_index)),
+                        None, None, None, None);
                     self.nodes.push(node);
 
                     // Mesh - Primitive
@@ -248,21 +250,12 @@ impl Gltf {
                     debug!("mesh_node: {:#?}", node_count);
                     debug!("node_index: {:?}", node_index);
                     self.node_indices.push(node_count);
-                    let node = json::Node {
-                        camera: None,
-                        children: Some(node_index.into_iter().map(json::Index::new).collect()),
-                        extensions: Default::default(),
-                        extras: Default::default(),
-                        // matrix: Some(node_matrix),
-                        matrix: None,
-                        mesh: None,
-                        name: Some(o.name.clone()),
-                        rotation: Some(json::scene::UnitQuaternion(rotation)),
-                        scale: Some(scale),
-                        translation: Some(translation),
-                        skin: None,
-                        weights: None,
-                    };
+                    let node = prepare_json_node(
+                        Some(node_index.into_iter().map(json::Index::new).collect()),
+                        None,
+                        Some(o.name.clone()),
+                        Some(json::scene::UnitQuaternion(rotation)),
+                        Some(scale), Some(translation));
                     self.nodes.push(node);
 
                     // Matrices
@@ -412,22 +405,16 @@ impl Gltf {
             .map(|x| json::Index::new(*x)).collect();
 
         let root_node_index = self.nodes.len() as u32;
-        let node = json::Node {
-            camera: None,
-            children: Some(scene_nodes),
-            extensions: Default::default(),
-            extras: Default::default(),
-            matrix: None,
-            mesh: None,
-            name: Some("Root".into()),
+        let node = prepare_json_node(
+            Some(scene_nodes),
+            None,
+            Some("Root".into()),
             // Rotate -90 degrees along X axis
-            rotation: Some(json::scene::UnitQuaternion([-0.707, 0.0, 0.0, 0.707])),
+            Some(json::scene::UnitQuaternion([-0.707, 0.0, 0.0, 0.707])),
             // Scale to 0.1
-            scale: Some([0.1, 0.1, 0.1].into()),
-            translation: None,
-            skin: None,
-            weights: None,
-        };
+            Some([0.1, 0.1, 0.1].into()),
+            None,
+        );
         self.nodes.push(node);
 
         let root = json::Root {
@@ -551,18 +538,24 @@ fn prepare_json_material(material_name: &str, base_color_texture: Option<json::t
     }
 }
 
-fn prepare_json_node(mesh_index: u32) -> json::Node {
+fn prepare_json_node(children: Option<Vec<json::Index<json::scene::Node>>>,
+                     mesh: Option<json::Index<json::mesh::Mesh>>,
+                     name: Option<String>,
+                     rotation: Option<json::scene::UnitQuaternion>,
+                     scale: Option<[f32; 3]>,
+                     translation: Option<[f32; 3]>,
+) -> json::Node {
     json::Node {
         camera: None,
-        children: None,
+        children,
         extensions: Default::default(),
         extras: Default::default(),
         matrix: None,
-        mesh: Some(json::Index::new(mesh_index)),
-        name: None,
-        rotation: None,
-        scale: None,
-        translation: None,
+        mesh,
+        name,
+        rotation,
+        scale,
+        translation,
         skin: None,
         weights: None,
     }

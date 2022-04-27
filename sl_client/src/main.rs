@@ -19,6 +19,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut gltf = sl::Gltf::new();
     gltf.load_from_bwx("Assets/Graphic/NPC/WORLD01/HEROSANDRA.PNX/HEROSANDRA_WALK.PNX")?;
+    // gltf.load_from_bwx("Assets/Graphic/MONSTER/MON059.PNX/MON059_DEFAULTA.PNX")?;
     gltf.save_gltf()?;
 
     Ok(())

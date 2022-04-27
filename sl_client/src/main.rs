@@ -1,6 +1,5 @@
-use tracing::{debug, error, Level};
+use tracing::Level;
 use tracing_subscriber::filter::EnvFilter;
-use sl::BWX;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Ok(filter) = EnvFilter::try_from_default_env() {
@@ -20,7 +19,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut gltf = sl::Gltf::new();
     gltf.load_from_bwx("Assets/Graphic/NPC/WORLD01/HEROSANDRA.PNX/HEROSANDRA_WALK.PNX")?;
-    gltf.save_gltf();
+    gltf.save_gltf()?;
 
     Ok(())
 }

@@ -197,7 +197,7 @@ impl BWX {
                 .map(|x|
                     if let Ok(s) = x {
                         let r = s.trim();
-                        if r.starts_with("#") {
+                        if r.starts_with('#') {
                             "".into()
                         } else { r.to_owned().to_uppercase() }
                     } else {

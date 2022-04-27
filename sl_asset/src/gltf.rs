@@ -3,11 +3,10 @@ use std::io::Cursor;
 use std::mem;
 use std::path::PathBuf;
 use byteorder::{LittleEndian, WriteBytesExt};
-use tracing::{debug, error, Level};
+use tracing::{debug, error};
 use gltf::json::{self, validation::Checked::Valid};
 use serde_json::json;
 use std::path::Path;
-use gltf::accessor::Dimensions::Scalar;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -58,7 +57,7 @@ impl Gltf {
         Ok(())
     }
 
-    pub fn save_gltf(&mut self) {
+    pub fn save_gltf(&mut self) -> Result<()> {
         /*
     // Store the material group information
     material_index: Vec<Vec<u32>>,
@@ -102,10 +101,10 @@ impl Gltf {
                 // Process Index Buffer
                 let mut index_buffer = Cursor::new(vec![]);
                 for i in &m.indices {
-                    index_buffer.write_u16::<LittleEndian>(*i);
+                    index_buffer.write_u16::<LittleEndian>(*i)?;
                 }
                 // Index buffer might need padding when using u16 (2 bytes)
-                buffer_padding(&mut index_buffer);
+                buffer_padding(&mut index_buffer)?;
 
                 // Process Vertex Buffer
                 if m.sub_meshes.len() > 1 {
@@ -117,7 +116,7 @@ impl Gltf {
                 let sm = &m.sub_meshes[0];
                 {
                     let mut buffer_view_index = self.buffer_views.len() as u32;
-                    let mut accessor_index = self.accessors.len() as u32;
+                    let accessor_index = self.accessors.len() as u32;
                     let mesh_index = self.meshes.len() as u32;
 
                     // Store the children
@@ -145,17 +144,17 @@ impl Gltf {
                     debug!("Vertex: {:#?}", sm.vertices.len());
                     for v in &sm.vertices {
                         // Write position
-                        vertex_buffer.write_f32::<LittleEndian>(v.position[0]);
-                        vertex_buffer.write_f32::<LittleEndian>(v.position[1]);
-                        vertex_buffer.write_f32::<LittleEndian>(v.position[2]);
+                        vertex_buffer.write_f32::<LittleEndian>(v.position[0])?;
+                        vertex_buffer.write_f32::<LittleEndian>(v.position[1])?;
+                        vertex_buffer.write_f32::<LittleEndian>(v.position[2])?;
                         // TODO: "Write normal" but should not be used before programmed normal calculation
                         // Disable normal output
-                        // vertex_buffer.write_f32::<LittleEndian>(v.normal[0]);
-                        // vertex_buffer.write_f32::<LittleEndian>(v.normal[1]);
-                        // vertex_buffer.write_f32::<LittleEndian>(v.normal[2]);
+                        // vertex_buffer.write_f32::<LittleEndian>(v.normal[0])?;
+                        // vertex_buffer.write_f32::<LittleEndian>(v.normal[1])?;
+                        // vertex_buffer.write_f32::<LittleEndian>(v.normal[2])?;
                         // Write texture coordinate
-                        vertex_buffer.write_f32::<LittleEndian>(v.tex_coord[0]);
-                        vertex_buffer.write_f32::<LittleEndian>(v.tex_coord[1]);
+                        vertex_buffer.write_f32::<LittleEndian>(v.tex_coord[0])?;
+                        vertex_buffer.write_f32::<LittleEndian>(v.tex_coord[1])?;
 
                         if v_set {
                             let v = v.position;
@@ -202,16 +201,12 @@ impl Gltf {
                     let vertex_size = 5 * mem::size_of::<f32>();
                     // Changed value to 5 since there's no normal data
                     // let vertex_size = 8 * mem::size_of::<f32>();
-                    let mut buffer_view = json::buffer::View {
-                        buffer: json::Index::new(0),
-                        byte_length: vertex_buffer.get_ref().len() as u32,
-                        byte_offset: Some(self.buffer.len() as u32),
-                        byte_stride: Some(vertex_size as u32),
-                        name: None,
-                        target: None,
-                        extensions: None,
-                        extras: Default::default(),
-                    };
+                    let mut buffer_view = prepare_json_buffer_view(
+                        vertex_buffer.get_ref().len() as u32,
+                        self.buffer.len() as u32,
+                        vertex_size as u32,
+                        None,
+                    );
                     self.buffer_views.push(buffer_view.clone());
 
                     // Index Buffer ------------------
@@ -267,10 +262,10 @@ impl Gltf {
                         // Write timeline, translation, rotation and scale to buffer
                         // Could use system's array.as_bytes, but cannot ensure when running on big endian system
                         // So use the old school byteorder method
-                        o_buffer.write_f32::<LittleEndian>(timeline);
-                        for v in translation { o_buffer.write_f32::<LittleEndian>(v); }
-                        for v in rotation { o_buffer.write_f32::<LittleEndian>(v); }
-                        for v in scale { o_buffer.write_f32::<LittleEndian>(v); }
+                        o_buffer.write_f32::<LittleEndian>(timeline)?;
+                        for v in translation { o_buffer.write_f32::<LittleEndian>(v)?; }
+                        for v in rotation { o_buffer.write_f32::<LittleEndian>(v)?; }
+                        for v in scale { o_buffer.write_f32::<LittleEndian>(v)?; }
 
                         if timeline > timeline_max {
                             timeline_max = timeline;
@@ -283,22 +278,18 @@ impl Gltf {
 
                     // Prepare bufferView
                     let buffer_view_index = self.buffer_views.len() as u32;
-                    let buffer_view = json::buffer::View {
-                        buffer: json::Index::new(0),
-                        byte_length: length as u32,
-                        byte_offset: Some(offset as u32),
-                        byte_stride: Some((mem::size_of::<f32>() * 11) as u32),
-                        name: Some(o.name.clone() + "_Matrix"),
-                        target: None,
-                        extensions: None,
-                        extras: Default::default(),
-                    };
+                    let buffer_view = prepare_json_buffer_view(
+                        length as u32,
+                        offset as u32,
+                        (mem::size_of::<f32>() * 11) as u32,
+                        None,
+                    );
                     self.buffer_views.push(buffer_view);
 
                     // let animation_count = matrix.len() as u32 - 1;
                     let animation_count = o.matrices.len() as u32;
                     // Accessor for timeline
-                    let accessor_index = self.accessors.len();
+                    let accessor_index = self.accessors.len() as u32;
                     let accessor = prepare_json_accessor(
                         buffer_view_index,
                         0,
@@ -335,18 +326,11 @@ impl Gltf {
                     accessor.name = Some(o.name.clone() + "_Scale");
                     self.accessors.push(accessor);
 
-
                     // Samplers
                     // let mut samplers = vec![];
                     let sampler_index = self.samplers.len() as u32;
                     // Samplers - Translation
-                    let mut sampler = json::animation::Sampler {
-                        extensions: None,
-                        extras: Default::default(),
-                        input: json::Index::new(accessor_index as u32),
-                        interpolation: Valid(json::animation::Interpolation::Linear),
-                        output: json::Index::new(accessor_index as u32 + 1),
-                    };
+                    let mut sampler = prepare_json_animation_sampler(accessor_index, accessor_index + 1);
                     self.samplers.push(sampler.clone());
                     // Samplers - Rotation
                     sampler.output = json::Index::new(accessor_index as u32 + 2);
@@ -358,17 +342,8 @@ impl Gltf {
                     // Channels
                     // let mut channels = vec![];
                     // Channel - Translation
-                    let mut channel = json::animation::Channel {
-                        sampler: json::Index::new(sampler_index),
-                        target: json::animation::Target {
-                            extensions: None,
-                            extras: Default::default(),
-                            node: json::Index::new(node_count),
-                            path: Valid(json::animation::Property::Translation),
-                        },
-                        extensions: None,
-                        extras: Default::default(),
-                    };
+                    let mut channel = prepare_json_animation_channel(
+                        sampler_index, node_count, json::animation::Property::Translation);
                     self.channels.push(channel.clone());
                     // Channel - Rotation
                     channel.sampler = json::Index::new(sampler_index + 1);
@@ -412,7 +387,7 @@ impl Gltf {
             // Rotate -90 degrees along X axis
             Some(json::scene::UnitQuaternion([-0.707, 0.0, 0.0, 0.707])),
             // Scale to 0.1
-            Some([0.1, 0.1, 0.1].into()),
+            Some([0.1, 0.1, 0.1]),
             None,
         );
         self.nodes.push(node);
@@ -448,12 +423,9 @@ impl Gltf {
 
         let j = json::serialize::to_string_pretty(&root).expect("OK");
 
-        std::fs::write("./tmp/".to_owned() + &oname + ".gltf", j.as_bytes());
-        std::fs::write("./tmp/".to_owned() + &oname + ".bin", self.buffer.clone());
-    }
+        std::fs::write("./tmp/".to_owned() + &oname + ".gltf", j.as_bytes())?;
+        std::fs::write("./tmp/".to_owned() + &oname + ".bin", self.buffer.clone())?;
 
-    fn buffer_append(&mut self) -> Result<()>
-    {
         Ok(())
     }
 }
@@ -472,14 +444,15 @@ fn matrix_decomposed(matrix: &[f32; 16]) -> ([f32; 3], [f32; 4], [f32; 3]) {
 }
 
 /// Buffer padding to 4 bytes alignment
-fn buffer_padding(buffer: &mut Cursor<Vec<u8>>) {
+fn buffer_padding(buffer: &mut Cursor<Vec<u8>>) -> Result<()> {
     let buffer_length = buffer.get_ref().len();
     let padding = ((buffer_length + 3) & !3) - buffer_length;
     if padding > 0 {
         for _ in 0..padding {
-            buffer.write_u8(0);
+            buffer.write_u8(0)?;
         }
     }
+    Ok(())
 }
 
 fn prepare_json_image(filename: Option<String>) -> json::Image {
@@ -574,7 +547,7 @@ fn prepare_json_mesh_primitive(accessor_index: u32, indices_index: u32, material
         extensions: Default::default(),
         extras: Default::default(),
         indices: Some(json::Index::new(indices_index)),
-        material: if let Some(m) = material_id { Some(json::Index::new(m)) } else { None },
+        material: material_id.map(json::Index::new),
         mode: Valid(json::mesh::Mode::Triangles),
         targets: None,
     }
@@ -591,13 +564,13 @@ fn prepare_json_mesh(primitive: json::mesh::Primitive) -> json::Mesh {
     }
 }
 
-fn prepare_json_accessor(buffer_view_index: u32, byte_offset: u32, count: u32,
+fn prepare_json_accessor(buffer_view: u32, byte_offset: u32, count: u32,
                          component_type: json::accessor::ComponentType, type_: json::accessor::Type,
                          min: Option<serde_json::value::Value>, max: Option<serde_json::value::Value>,
                          name: Option<String>,
 ) -> json::Accessor {
     json::Accessor {
-        buffer_view: Some(json::Index::new(buffer_view_index)),
+        buffer_view: Some(json::Index::new(buffer_view)),
         byte_offset,
         count,
         component_type: Valid(json::accessor::GenericComponentType(component_type)),
@@ -609,5 +582,47 @@ fn prepare_json_accessor(buffer_view_index: u32, byte_offset: u32, count: u32,
         name,
         normalized: false,
         sparse: None,
+    }
+}
+
+fn prepare_json_animation_sampler(input: u32, output: u32) -> json::animation::Sampler {
+    json::animation::Sampler {
+        extensions: None,
+        extras: Default::default(),
+        input: json::Index::new(input),
+        interpolation: Valid(json::animation::Interpolation::Linear),
+        output: json::Index::new(output),
+    }
+}
+
+fn prepare_json_animation_channel(sampler: u32, node: u32, path: json::animation::Property) -> json::animation::Channel {
+    json::animation::Channel {
+        sampler: json::Index::new(sampler),
+        target: json::animation::Target {
+            extensions: None,
+            extras: Default::default(),
+            node: json::Index::new(node),
+            path: Valid(path),
+        },
+        extensions: None,
+        extras: Default::default(),
+    }
+}
+
+fn prepare_json_buffer_view(byte_length: u32, byte_offset: u32, byte_stride: u32,
+                            target: Option<json::validation::Checked<json::buffer::Target>>) -> json::buffer::View {
+    json::buffer::View {
+        // Only one binary buffer, so always 0
+        buffer: json::Index::new(0),
+        // byte_length: vertex_buffer.get_ref().len() as u32,
+        byte_length,
+        // byte_offset: Some(self.buffer.len() as u32),
+        byte_offset: Some(byte_offset),
+        // byte_stride: Some(vertex_size as u32),
+        byte_stride: Some(byte_stride),
+        name: None,
+        target,
+        extensions: None,
+        extras: Default::default(),
     }
 }

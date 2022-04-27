@@ -171,7 +171,7 @@ impl BWX {
     /// # Examples
     ///
     /// ```
-    /// use bwx::BWX;
+    /// use sl_asset::BWX;
     /// let bwx = BWX::new();
     /// ```
     pub fn new() -> Self {

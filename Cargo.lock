@@ -354,6 +354,8 @@ version = "0.1.0"
 dependencies = [
  "byteorder",
  "encoding_rs",
+ "gltf",
+ "serde_json",
  "tracing",
 ]
 
@@ -361,9 +363,6 @@ dependencies = [
 name = "sl_client"
 version = "0.1.0"
 dependencies = [
- "byteorder",
- "gltf",
- "serde_json",
  "sl",
  "tracing",
  "tracing-subscriber",

@@ -79,6 +79,7 @@ impl Gltf {
                 let material_group = &mut self.bwx.materials[o.material as usize];
                 let sub_material = &mut material_group.sub_materials[m.sub_material as usize];
                 if !sub_material.used {
+                    // Material hasn't been generated yet, prepare material and save the material id
                     sub_material.used = true;
                     sub_material.material_id = self.materials.len() as u32;
 
@@ -93,52 +94,9 @@ impl Gltf {
                         Some(prepare_json_texture_info(texture_index))
                     } else { None };
 
-                    self.materials.push(json::Material {
-                        alpha_cutoff: None,
-                        alpha_mode: Default::default(),
-                        double_sided: true,
-                        name: Some(material_group.name.clone()),
-                        pbr_metallic_roughness: json::material::PbrMetallicRoughness {
-                            base_color_factor: Default::default(),
-                            base_color_texture,
-                            metallic_factor: json::material::StrengthFactor(0.0),
-                            roughness_factor: json::material::StrengthFactor(1.0),
-                            metallic_roughness_texture: None,
-                            extensions: None,
-                            extras: Default::default(),
-                        },
-                        normal_texture: None,
-                        occlusion_texture: None,
-                        emissive_texture: None,
-                        emissive_factor: Default::default(),
-                        extensions: None,
-                        // "KHR_materials_pbrSpecularGlossiness" extension
-                        /*
-                    extensions: Some(json::extensions::material::Material {
-                        pbr_specular_glossiness: Some(json::extensions::material::PbrSpecularGlossiness {
-                            diffuse_factor: Default::default(),
-                            diffuse_texture: color_texture,
-                            specular_factor: json::extensions::material::PbrSpecularFactor([0.0, 0.0, 0.0]),
-                            glossiness_factor: json::material::StrengthFactor(0.0),
-                            specular_glossiness_texture: None,
-                            extras: Default::default(),
-                        })
-                    }),
-                     */
-                        // Not working due to glTF 1.0.0 bug that cannot enable "KHR_materials_specular"
-                        /*
-                    extensions: Some(json::extensions::material::Material {
-                        specular: Some(json::extensions::material::Specular {
-                            specular_factor: json::extensions::material::SpecularFactor(0.0),
-                            specular_texture: None,
-                            specular_color_factor: Default::default(),
-                            specular_color_texture: None,
-                            extras: (),
-                        })
-                    }),
-                     */
-                        extras: Default::default(),
-                    });
+                    let material = prepare_json_material(&material_group.name, base_color_texture);
+
+                    self.materials.push(material);
                 }
 
                 // Process Index Buffer
@@ -621,6 +579,32 @@ fn prepare_json_texture_info(texture_index: u32) -> json::texture::Info {
     json::texture::Info {
         index: json::Index::new(texture_index),
         tex_coord: 0, // Only have texture_0 now
+        extensions: None,
+        extras: Default::default(),
+    }
+}
+
+fn prepare_json_material(material_name: &str, base_color_texture: Option<json::texture::Info>) -> json::Material {
+    json::Material {
+        alpha_cutoff: None,
+        alpha_mode: Default::default(),
+        // Because the normal faces' error, use double sided texture
+        double_sided: true,
+        name: Some(material_name.into()),
+        pbr_metallic_roughness: json::material::PbrMetallicRoughness {
+            base_color_factor: Default::default(),
+            base_color_texture,
+            // Set metallic to 0, roughness to 1 to display SL characters correctly
+            metallic_factor: json::material::StrengthFactor(0.0),
+            roughness_factor: json::material::StrengthFactor(1.0),
+            metallic_roughness_texture: None,
+            extensions: None,
+            extras: Default::default(),
+        },
+        normal_texture: None,
+        occlusion_texture: None,
+        emissive_texture: None,
+        emissive_factor: Default::default(),
         extensions: None,
         extras: Default::default(),
     }

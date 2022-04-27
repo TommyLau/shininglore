@@ -125,27 +125,12 @@ impl Gltf {
                     self.nodes.push(node);
 
                     // Mesh - Primitive
-                    let primitive = json::mesh::Primitive {
-                        attributes: {
-                            let mut map = std::collections::HashMap::new();
-                            map.insert(Valid(json::mesh::Semantic::Positions), json::Index::new(accessor_index));
-                            accessor_index += 1;
-                            // TODO: Enable normal later
-                            // map.insert(Valid(json::mesh::Semantic::Normals), json::Index::new(accessor_index ));
-                            // accessor_index += 1;
-                            map.insert(Valid(json::mesh::Semantic::TexCoords(0)), json::Index::new(accessor_index));
-                            accessor_index += 1;
-                            map
-                        },
-                        extensions: Default::default(),
-                        extras: Default::default(),
-                        indices: Some(json::Index::new(accessor_index)),
-                        material: if o.material < 0 { None } else {
-                            Some(json::Index::new(sub_material.material_id))
-                        },
-                        mode: Valid(json::mesh::Mode::Triangles),
-                        targets: None,
-                    };
+                    let primitive = prepare_json_mesh_primitive(
+                        accessor_index,
+                        accessor_index + 2,
+                        if o.material < 0 { None } else {
+                            Some(sub_material.material_id)
+                        });
 
                     let mesh = json::Mesh {
                         extensions: Default::default(),
@@ -610,5 +595,24 @@ fn prepare_json_node(mesh_index: u32) -> json::Node {
         translation: None,
         skin: None,
         weights: None,
+    }
+}
+
+fn prepare_json_mesh_primitive(accessor_index: u32, indices_index: u32, material_id: Option<u32>) -> json::mesh::Primitive {
+    json::mesh::Primitive {
+        attributes: {
+            let mut map = std::collections::HashMap::new();
+            map.insert(Valid(json::mesh::Semantic::Positions), json::Index::new(accessor_index));
+            // TODO: Enable normal later
+            // map.insert(Valid(json::mesh::Semantic::Normals), json::Index::new(accessor_index + 1));
+            map.insert(Valid(json::mesh::Semantic::TexCoords(0)), json::Index::new(accessor_index + 1));
+            map
+        },
+        extensions: Default::default(),
+        extras: Default::default(),
+        indices: Some(json::Index::new(indices_index)),
+        material: if let Some(m) = material_id { Some(json::Index::new(m)) } else { None },
+        mode: Valid(json::mesh::Mode::Triangles),
+        targets: None,
     }
 }

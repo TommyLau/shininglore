@@ -227,7 +227,7 @@ impl Gltf {
                     // Changed value to 3 since there's no normal data
                     accessor.type_ = Valid(json::accessor::Type::Vec2);
                     accessor.name = Some(o.name.clone() + "_UV_0");
-                    self.accessors.push(accessor.clone());
+                    self.accessors.push(accessor);
 
                     let vertex_size = 5 * mem::size_of::<f32>();
                     // Changed value to 5 since there's no normal data
@@ -265,44 +265,35 @@ impl Gltf {
                 // ============================================================
                 // Matrices
                 let mut timeline_max = 0.0;
-                let mut o_buffer = Cursor::new(vec![]);
+                let mut tl_buffer = Cursor::new(vec![]);
+                let mut t_buffer = Cursor::new(vec![]);
+                let mut r_buffer = Cursor::new(vec![]);
+                let mut s_buffer = Cursor::new(vec![]);
                 for mm in &o.matrices {
                     let timeline = mm.timeline as f32 / 3600.0;
                     let (translation, rotation, scale) = matrix_decomposed(&mm.matrix);
                     // Write timeline, translation, rotation and scale to buffer
                     // Could use system's array.as_bytes, but cannot ensure when running on big endian system
                     // So use the old school byteorder method
-                    o_buffer.write_f32::<LittleEndian>(timeline)?;
-                    for v in translation { o_buffer.write_f32::<LittleEndian>(v)?; }
-                    for v in rotation { o_buffer.write_f32::<LittleEndian>(v)?; }
-                    for v in scale { o_buffer.write_f32::<LittleEndian>(v)?; }
+                    tl_buffer.write_f32::<LittleEndian>(timeline)?;
+                    for v in translation { t_buffer.write_f32::<LittleEndian>(v)?; }
+                    for v in rotation { r_buffer.write_f32::<LittleEndian>(v)?; }
+                    for v in scale { s_buffer.write_f32::<LittleEndian>(v)?; }
 
                     if timeline > timeline_max {
                         timeline_max = timeline;
                     }
                 }
-                // Store data in buffer
-                let offset = self.buffer.len();
-                let length = o_buffer.get_ref().len();
-                self.buffer.append(o_buffer.get_mut());
 
-                // Prepare bufferView
-                let buffer_view_index = self.buffer_views.len() as u32;
-                let buffer_view = prepare_json_buffer_view(
-                    length as u32,
-                    Some(offset as u32),
-                    Some((mem::size_of::<f32>() * 11) as u32),
-                    Some(o.name.clone() + "_Matrix"),
-                    None,
-                );
-                self.buffer_views.push(buffer_view);
-
-                // let animation_count = matrix.len() as u32 - 1;
+                // Frame counts
                 let animation_count = o.matrices.len() as u32;
-                // Accessor for timeline
-                let accessor_index = self.accessors.len() as u32;
-                let accessor = prepare_json_accessor(
-                    buffer_view_index,
+
+                // ------------------------------------------------------------
+                // < Timeline >
+                // ------------------------------------------------------------
+                let accessor_input = self.accessors.len() as u32;
+                let mut accessor = prepare_json_accessor(
+                    self.buffer_views.len() as u32,
                     0,
                     animation_count,
                     json::accessor::ComponentType::F32,
@@ -311,56 +302,92 @@ impl Gltf {
                     Some(json!([timeline_max])),
                     Some(o.name.clone() + "_Timeline"),
                 );
-                self.accessors.push(accessor);
-                debug!("bufferView: {}", buffer_view_index);
-
-                // Accessor for Translation
-                let mut accessor = prepare_json_accessor(
-                    buffer_view_index,
-                    mem::size_of::<f32>() as u32,
-                    animation_count,
-                    json::accessor::ComponentType::F32,
-                    json::accessor::Type::Vec3,
-                    None,
-                    None,
-                    Some(o.name.clone() + "_Translation"),
-                );
                 self.accessors.push(accessor.clone());
-                // Accessor for Rotation
-                accessor.byte_offset = (1 + 3) * mem::size_of::<f32>() as u32;
+
+                let mut buffer_view = prepare_json_buffer_view(
+                    tl_buffer.get_ref().len() as u32,
+                    Some(self.buffer.len() as u32),
+                    None,
+                    Some(o.name.clone() + "_Timeline"),
+                    None,
+                );
+                self.buffer_views.push(buffer_view.clone());
+                self.buffer.append(tl_buffer.get_mut());
+
+                // ------------------------------------------------------------
+                // < Translation >
+                // ------------------------------------------------------------
+                let accessor_translation = self.accessors.len() as u32;
+                accessor.buffer_view = Some(json::Index::new(self.buffer_views.len() as u32));
+                accessor.type_ = Valid(json::accessor::Type::Vec3);
+                accessor.min = None;
+                accessor.max = None;
+                accessor.name = Some(o.name.clone() + "_Translation");
+                self.accessors.push(accessor.clone());
+                buffer_view.byte_length = t_buffer.get_ref().len() as u32;
+                buffer_view.byte_offset = Some(self.buffer.len() as u32);
+                buffer_view.name = Some(o.name.clone() + "_Timeline");
+                self.buffer_views.push(buffer_view.clone());
+                self.buffer.append(t_buffer.get_mut());
+
+                // ------------------------------------------------------------
+                // < Rotation >
+                // ------------------------------------------------------------
+                let accessor_rotation = self.accessors.len() as u32;
+                accessor.buffer_view = Some(json::Index::new(self.buffer_views.len() as u32));
                 accessor.type_ = Valid(json::accessor::Type::Vec4);
                 accessor.name = Some(o.name.clone() + "_Rotation");
                 self.accessors.push(accessor.clone());
-                // Accessor for Scale
-                accessor.byte_offset = (1 + 3 + 4) * mem::size_of::<f32>() as u32;
+                buffer_view.byte_length = r_buffer.get_ref().len() as u32;
+                buffer_view.byte_offset = Some(self.buffer.len() as u32);
+                buffer_view.name = Some(o.name.clone() + "_Rotation");
+                self.buffer_views.push(buffer_view.clone());
+                self.buffer.append(r_buffer.get_mut());
+
+                // ------------------------------------------------------------
+                // < Scale >
+                // ------------------------------------------------------------
+                let accessor_scale = self.accessors.len() as u32;
+                accessor.buffer_view = Some(json::Index::new(self.buffer_views.len() as u32));
                 accessor.type_ = Valid(json::accessor::Type::Vec3);
                 accessor.name = Some(o.name.clone() + "_Scale");
                 self.accessors.push(accessor);
+                buffer_view.byte_length = s_buffer.get_ref().len() as u32;
+                buffer_view.byte_offset = Some(self.buffer.len() as u32);
+                buffer_view.name = Some(o.name.clone() + "_Scale");
+                self.buffer_views.push(buffer_view);
+                self.buffer.append(s_buffer.get_mut());
 
-                // Samplers
-                let sampler_index = self.samplers.len() as u32;
+                // ------------------------------------------------------------
+                // <<< Samplers >>>
+                // ------------------------------------------------------------
                 // Samplers - Translation
-                let mut sampler = prepare_json_animation_sampler(accessor_index, accessor_index + 1);
+                let sampler_translation = self.samplers.len() as u32;
+                let sampler = prepare_json_animation_sampler(accessor_input, accessor_translation);
                 self.samplers.push(sampler.clone());
                 // Samplers - Rotation
-                sampler.output = json::Index::new(accessor_index as u32 + 2);
+                let sampler_rotation = self.samplers.len() as u32;
+                let sampler = prepare_json_animation_sampler(accessor_input, accessor_rotation);
                 self.samplers.push(sampler.clone());
                 // Samplers - Scale
-                sampler.output = json::Index::new(accessor_index as u32 + 3);
+                let sampler_scale = self.samplers.len() as u32;
+                let sampler = prepare_json_animation_sampler(accessor_input, accessor_scale);
                 self.samplers.push(sampler);
 
-                // Channels
+                // ------------------------------------------------------------
+                // <<< Channels >>>
+                // ------------------------------------------------------------
                 // Channel - Translation
-                let mut channel = prepare_json_animation_channel(
-                    sampler_index, node_id, json::animation::Property::Translation);
-                self.channels.push(channel.clone());
+                let channel = prepare_json_animation_channel(
+                    sampler_translation, node_id, json::animation::Property::Translation);
+                self.channels.push(channel);
                 // Channel - Rotation
-                channel.sampler = json::Index::new(sampler_index + 1);
-                channel.target.path = Valid(json::animation::Property::Rotation);
-                self.channels.push(channel.clone());
+                let channel = prepare_json_animation_channel(
+                    sampler_rotation, node_id, json::animation::Property::Rotation);
+                self.channels.push(channel);
                 // Channel - Scale
-                channel.sampler = json::Index::new(sampler_index + 2);
-                channel.target.path = Valid(json::animation::Property::Scale);
+                let channel = prepare_json_animation_channel(
+                    sampler_scale, node_id, json::animation::Property::Scale);
                 self.channels.push(channel);
             }
         }

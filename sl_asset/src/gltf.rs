@@ -201,11 +201,12 @@ impl Gltf {
                     let vertex_size = 5 * mem::size_of::<f32>();
                     // Changed value to 5 since there's no normal data
                     // let vertex_size = 8 * mem::size_of::<f32>();
-                    let mut buffer_view = prepare_json_buffer_view(
+                    let buffer_view = prepare_json_buffer_view(
                         vertex_buffer.get_ref().len() as u32,
-                        self.buffer.len() as u32,
-                        vertex_size as u32,
-                        None,
+                        Some(self.buffer.len() as u32),
+                        Some(vertex_size as u32),
+                        Some(o.name.clone() + "_Vertex"),
+                        Some(Valid(json::buffer::Target::ArrayBuffer)),
                     );
                     self.buffer_views.push(buffer_view.clone());
 
@@ -229,10 +230,13 @@ impl Gltf {
                     debug!("Buffer len: {}", vertex_buffer.get_ref().len());
                     self.buffer.append(vertex_buffer.get_mut());
 
-                    buffer_view.buffer = json::Index::new(0);
-                    buffer_view.byte_length = index_buffer.get_ref().len() as u32;
-                    buffer_view.byte_offset = Some(self.buffer.len() as u32);
-                    buffer_view.byte_stride = None;
+                    let buffer_view = prepare_json_buffer_view(
+                        index_buffer.get_ref().len() as u32,
+                        Some(self.buffer.len() as u32),
+                        None,
+                        Some(o.name.clone() + "_Index"),
+                        Some(Valid(json::buffer::Target::ElementArrayBuffer)),
+                    );
                     self.buffer_views.push(buffer_view);
 
                     // Store index buffer to binary
@@ -280,8 +284,9 @@ impl Gltf {
                     let buffer_view_index = self.buffer_views.len() as u32;
                     let buffer_view = prepare_json_buffer_view(
                         length as u32,
-                        offset as u32,
-                        (mem::size_of::<f32>() * 11) as u32,
+                        Some(offset as u32),
+                        Some((mem::size_of::<f32>() * 11) as u32),
+                        Some(o.name.clone() + "_Matrix"),
                         None,
                     );
                     self.buffer_views.push(buffer_view);
@@ -609,18 +614,15 @@ fn prepare_json_animation_channel(sampler: u32, node: u32, path: json::animation
     }
 }
 
-fn prepare_json_buffer_view(byte_length: u32, byte_offset: u32, byte_stride: u32,
+fn prepare_json_buffer_view(byte_length: u32, byte_offset: Option<u32>, byte_stride: Option<u32>, name: Option<String>,
                             target: Option<json::validation::Checked<json::buffer::Target>>) -> json::buffer::View {
     json::buffer::View {
         // Only one binary buffer, so always 0
         buffer: json::Index::new(0),
-        // byte_length: vertex_buffer.get_ref().len() as u32,
         byte_length,
-        // byte_offset: Some(self.buffer.len() as u32),
-        byte_offset: Some(byte_offset),
-        // byte_stride: Some(vertex_size as u32),
-        byte_stride: Some(byte_stride),
-        name: None,
+        byte_offset,
+        byte_stride,
+        name,
         target,
         extensions: None,
         extras: Default::default(),

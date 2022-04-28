@@ -161,11 +161,10 @@ impl Gltf {
                         vertex_buffer.write_f32::<LittleEndian>(v.position[0])?;
                         vertex_buffer.write_f32::<LittleEndian>(v.position[1])?;
                         vertex_buffer.write_f32::<LittleEndian>(v.position[2])?;
-                        // TODO: "Write normal" but should not be used before programmed normal calculation
-                        // Disable normal output
-                        // vertex_buffer.write_f32::<LittleEndian>(v.normal[0])?;
-                        // vertex_buffer.write_f32::<LittleEndian>(v.normal[1])?;
-                        // vertex_buffer.write_f32::<LittleEndian>(v.normal[2])?;
+                        // Write normal
+                        vertex_buffer.write_f32::<LittleEndian>(v.normal[0])?;
+                        vertex_buffer.write_f32::<LittleEndian>(v.normal[1])?;
+                        vertex_buffer.write_f32::<LittleEndian>(v.normal[2])?;
                         // Write texture coordinate
                         vertex_buffer.write_f32::<LittleEndian>(v.tex_coord[0])?;
                         vertex_buffer.write_f32::<LittleEndian>(v.tex_coord[1])?;
@@ -197,17 +196,16 @@ impl Gltf {
                     );
                     self.accessors.push(accessor.clone());
 
-                    // TODO: Enable normal
                     // Normal
-                    // accessor.byte_offset = (3 * mem::size_of::<f32>()) as u32;
+                    accessor.byte_offset = (3 * mem::size_of::<f32>()) as u32;
                     accessor.min = None;
                     accessor.max = None;
-                    // accessor.name = Some(o.name.clone() + "_Normal");
-                    // accessors.push(accessor.clone());
+                    accessor.name = Some(o.name.clone() + "_Normal");
+                    self.accessors.push(accessor.clone());
 
                     // Texture Coordinate
-                    accessor.byte_offset = (3 * mem::size_of::<f32>()) as u32;
-                    // accessor.byte_offset = (6 * mem::size_of::<f32>()) as u32;
+                    // accessor.byte_offset = (3 * mem::size_of::<f32>()) as u32;
+                    accessor.byte_offset = (6 * mem::size_of::<f32>()) as u32;
                     // Changed value to 3 since there's no normal data
                     accessor.type_ = Valid(json::accessor::Type::Vec2);
                     accessor.name = Some(o.name.clone() + "_UV_0");
@@ -217,7 +215,8 @@ impl Gltf {
                     self.buffer_views.push(prepare_json_buffer_view(
                         vertex_buffer.get_ref().len() as u32,
                         Some(self.buffer.len() as u32),
-                        Some(5 * mem::size_of::<f32>() as u32),
+                        Some(8 * mem::size_of::<f32>() as u32),
+                        // Some(5 * mem::size_of::<f32>() as u32),
                         Some(o.name.clone() + "_Vertex"),
                         Some(Valid(json::buffer::Target::ArrayBuffer)),
                     ));
@@ -592,9 +591,8 @@ fn prepare_json_mesh(accessor_index: u32, indices_index: u32, material_id: Optio
             attributes: {
                 let mut map = std::collections::HashMap::new();
                 map.insert(Valid(json::mesh::Semantic::Positions), json::Index::new(accessor_index));
-                // TODO: Enable normal later
-                // map.insert(Valid(json::mesh::Semantic::Normals), json::Index::new(accessor_index + 1));
-                map.insert(Valid(json::mesh::Semantic::TexCoords(0)), json::Index::new(accessor_index + 1));
+                map.insert(Valid(json::mesh::Semantic::Normals), json::Index::new(accessor_index + 1));
+                map.insert(Valid(json::mesh::Semantic::TexCoords(0)), json::Index::new(accessor_index + 2));
                 map
             },
             extensions: Default::default(),

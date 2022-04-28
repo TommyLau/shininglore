@@ -3,7 +3,7 @@ use std::iter::zip;
 use std::path::Path;
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use tracing::{debug, error, info, trace, warn};
-// use std::default::Default;
+use crate::math::Vec3;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -337,6 +337,7 @@ impl BWX {
                             if object_name.starts_with("EV_")
                                 || object_name.starts_with("EP_")
                                 || object_name.starts_with("@")
+                                || object_name.starts_with("SFX")
                             {
                                 continue;
                             }
@@ -434,6 +435,30 @@ impl BWX {
                                 .map(|x| x.int().unwrap() as u16).collect();
                             let indices = prepare_index_array(
                                 &object_name, &direction, indices, &patch)?;
+
+                            for i in 0..indices.len() / 3 {
+                                let a = indices[i * 3] as usize;
+                                let b = indices[i * 3 + 1] as usize;
+                                let c = indices[i * 3 + 2] as usize;
+                                let va = Vec3::new(sub_meshes[0].vertices[a].position.clone());
+                                let vb = Vec3::new(sub_meshes[0].vertices[b].position.clone());
+                                let vc = Vec3::new(sub_meshes[0].vertices[c].position.clone());
+                                let v1 = vb - va;
+                                let v2 = vc - va;
+                                let normal = v1.cross(v2).normalize();
+                                let na = Vec3::new(sub_meshes[0].vertices[a].normal.clone()) + normal;
+                                let nb = Vec3::new(sub_meshes[0].vertices[b].normal.clone()) + normal;
+                                let nc = Vec3::new(sub_meshes[0].vertices[c].normal.clone()) + normal;
+                                sub_meshes[0].vertices[a].normal = na.into();
+                                sub_meshes[0].vertices[b].normal = nb.into();
+                                sub_meshes[0].vertices[c].normal = nc.into();
+                            }
+
+                            for i in 0..sub_meshes[0].vertices.len() {
+                                let n = Vec3::new(sub_meshes[0].vertices[i].normal.clone());
+                                let n2 = n.normalize();
+                                sub_meshes[0].vertices[i].normal = n2.into();
+                            }
                             meshes.push(Mesh { sub_material, sub_meshes, indices });
                         }
 

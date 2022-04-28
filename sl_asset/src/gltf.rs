@@ -450,14 +450,15 @@ impl Gltf {
                 }
 
                 let tga_file = std::path::PathBuf::from(texture).with_extension("TGA");
-                let mut paths = vec![];
-                paths.push(self.filename.parent().unwrap().join(""));
-                paths.push(self.filename.parent().unwrap().parent().unwrap().join("TGA"));
-                paths.push(std::path::PathBuf::from("Assets/Graphic/PROPIN/WORLD01/TGA"));
-                paths.push(std::path::PathBuf::from("Assets/Graphic/BUILDINGEX/WORLD01/TGA"));
+                let paths = vec![
+                    self.filename.parent().unwrap().join(""),
+                    self.filename.parent().unwrap().parent().unwrap().join("TGA"),
+                    std::path::PathBuf::from("Assets/Graphic/PROPIN/WORLD01/TGA"),
+                    std::path::PathBuf::from("Assets/Graphic/BUILDINGEX/WORLD01/TGA"),
+                ];
                 let files: Vec<_> = paths.iter().map(|x| x.join(&tga_file)).collect();
 
-                let p = files.iter().filter(|x| x.exists()).next();
+                let p = files.iter().find(|x| x.exists());
                 if let Some(p) = p {
                     debug!("Found TGA at '{}'", p.display());
                     let img = image::open(p)?.flipv();

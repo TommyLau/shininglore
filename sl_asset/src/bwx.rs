@@ -813,30 +813,22 @@ fn get_direction(direction: i32) -> Result<String> {
 
 fn prepare_index_array(object_name: &str, direction: &str,
                        index_buffer: Vec<u16>, patch: &PatchFile) -> Result<Vec<u16>> {
-    let mut direction_flip = if direction.starts_with("MSHX") { true } else { false };
-    let patch_mesh: Vec<_> = patch.mesh.names.iter().map(|x| x.to_uppercase()).collect();
-    let patch_face = if let Some(ref f) = patch.face { f.clone() } else { vec![] };
+    let mut direction_flip = direction.starts_with("MSHX");
+    let object_name_uppercase = object_name.to_uppercase();
 
-    if patch_mesh.contains(&object_name.to_uppercase()) {
+    if patch.mesh.names.iter().map(|x| x.to_uppercase()).any(|x| x == object_name_uppercase) {
         debug!("Patching '{}'", object_name);
         direction_flip = !direction_flip;
     }
 
-    // Flip face
-    let face_flip = if let Some(f) = patch_face.iter()
-        .find(|x| x.name.contains(&object_name.to_uppercase()))
-    {
-        f.flip.clone()
-    } else { vec![] };
-
-    // Delete face
-    let face_delete = if let Some(f) = patch_face.iter()
-        .find(|x| x.name.contains(&object_name.to_uppercase()))
-    {
-        if let Some(d) = &f.delete {
-            d.clone()
-        } else { vec![] }
-    } else { vec![] };
+    // Flip / delete face
+    let (face_flip, face_delete) =
+        if let Some(f) =
+        if let Some(ref f) =
+        patch.face { f.clone() } else { vec![] }
+            .iter().find(|x| x.name.to_uppercase().contains(&object_name_uppercase)) {
+            (f.flip.clone(), if let Some(d) = &f.delete { d.clone() } else { vec![] })
+        } else { (vec![], vec![]) };
 
     let mut indices = vec![];
 
@@ -866,10 +858,6 @@ fn prepare_index_array(object_name: &str, direction: &str,
         indices.push(c);
     }
     Ok(indices)
-}
-
-fn change_order(a: u16, b: u16, c: u16) -> (u16, u16, u16) {
-    (a, c, b)
 }
 
 #[cfg(test)]

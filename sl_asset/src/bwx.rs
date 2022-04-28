@@ -1,10 +1,21 @@
-use std::io::{BufRead, BufReader, Cursor, Read};
+use std::io::{Cursor, Read};
 use std::iter::zip;
 use std::path::Path;
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use tracing::{debug, error, info, trace, warn};
+// use std::default::Default;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+
+#[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
+struct PatchFileMesh {
+    names: Vec<String>,
+}
+
+#[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
+struct PatchFile {
+    mesh: PatchFileMesh,
+}
 
 // u8, i8, u16, i16, u32, i32, u64, i64, u128, i128, usize, isize, f32, f64
 #[derive(Debug, Clone)]
@@ -189,22 +200,14 @@ impl BWX {
         info!("{}", filename.as_ref().display());
         let mut patch_file = filename.as_ref().to_owned();
         patch_file.pop();
-        patch_file.push("Patch.txt");
-        debug!("Here ------: {:#?}", patch_file);
-        let patches = if patch_file.exists() {
-            BufReader::new(std::fs::File::open(patch_file).unwrap())
-                .lines()
-                .map(|x|
-                    if let Ok(s) = x {
-                        let r = s.trim();
-                        if r.starts_with('#') {
-                            "".into()
-                        } else { r.to_owned().to_uppercase() }
-                    } else {
-                        "".into()
-                    })
-                .filter(|x| !x.is_empty()).collect()
-        } else { vec![] };
+        patch_file.push("Patch.toml");
+
+        let patch = if patch_file.exists() {
+            let data = std::fs::read(patch_file)?;
+            let patch: PatchFile = toml::from_slice(&data)?;
+            patch
+        } else { PatchFile { ..Default::default() } };
+        let patches = patch.mesh.names;
         debug!("Patch contents: {:#?}", patches);
 
         let data = std::fs::read(filename.as_ref())?;

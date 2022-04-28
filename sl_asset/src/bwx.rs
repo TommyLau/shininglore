@@ -212,14 +212,10 @@ impl BWX {
         let patch = if patch_file.exists() {
             let data = std::fs::read_to_string(patch_file)?;
             let patch: PatchFile = toml::from_str(&data)?;
-            // let a: toml::Value = data.parse().unwrap();
-            // debug!("Parse {:#?}", a);
             patch
         } else { PatchFile { ..Default::default() } };
-        let patch_mesh = patch.mesh.names;
-        debug!("Patch contents: {:#?}", patch_mesh);
+        let patch_mesh: Vec<_> = patch.mesh.names.into_iter().map(|x| x.to_uppercase()).collect();
         let patch_face = if let Some(f) = patch.face { f } else { vec![] };
-        debug!("Tables? {:#?}", patch_face);
 
         let data = std::fs::read(filename.as_ref())?;
         self.content = Cursor::new(data);

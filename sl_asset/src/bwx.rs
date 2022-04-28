@@ -7,19 +7,19 @@ use tracing::{debug, error, info, trace, warn};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-#[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 struct PatchFileMesh {
     names: Vec<String>,
 }
 
-#[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 struct PatchFileFace {
     name: String,
     flip: Vec<[u16; 3]>,
     delete: Option<Vec<[u16; 3]>>,
 }
 
-#[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 struct PatchFile {
     mesh: PatchFileMesh,
     face: Option<Vec<PatchFileFace>>,
@@ -148,7 +148,7 @@ pub struct SubMesh {
 pub struct Mesh {
     pub sub_material: i32,
     pub sub_meshes: Vec<SubMesh>,
-    pub index_count: i32,
+    // pub index_count: i32,
     pub indices: Vec<u16>,
 }
 
@@ -215,8 +215,6 @@ impl BWX {
             let patch: PatchFile = toml::from_str(&data)?;
             patch
         } else { PatchFile { ..Default::default() } };
-        let patch_mesh: Vec<_> = patch.mesh.names.into_iter().map(|x| x.to_uppercase()).collect();
-        let patch_face = if let Some(f) = patch.face { f } else { vec![] };
 
         let data = std::fs::read(filename.as_ref())?;
         self.content = Cursor::new(data);
@@ -330,9 +328,7 @@ impl BWX {
                         // 10 - Array Unknown
                         let object_name = object_array[1].string()?;
                         let material = object_array[3].int()?;
-                        let mut direction = vec![];
-                        direction.write_i32::<BigEndian>(object_array[6].int()?)?;
-                        let direction = std::str::from_utf8(&direction).unwrap();
+                        let direction = get_direction(object_array[6].int()?)?;
                         trace!("Object: {}, Material: {}, Direction: {}", object_name, material, direction);
 
                         {
@@ -431,65 +427,11 @@ impl BWX {
                                 error!("Index count incorrect!");
                             }
 
-                            // And for HERO PNX, no matter how I change the index order
-                            // The mesh data with normals are incorrect, comment out the following code
-                            // and use only "DOUBLE SIDED" material? MAYBE...
-                            // TODO: Comment out the code or not?!
-                            let mut indices = vec![];
-
-                            let mut direction_flip = direction.starts_with("MSHX");
-                            if patch_mesh.contains(&object_name.to_uppercase()) {
-                                debug!("Patching '{}'", object_name);
-                                direction_flip = !direction_flip;
-                            }
-
-                            let face_flip = if let Some(f) = patch_face.iter()
-                                .find(|x| x.name.contains(&object_name.to_uppercase()))
-                            {
-                                f.flip.clone()
-                            } else { vec![] };
-
-                            let face_delete = if let Some(f) = patch_face.iter()
-                                .find(|x| x.name.contains(&object_name.to_uppercase()))
-                            {
-                                if let Some(d) = &f.delete {
-                                    debug!("Delete faces: {:?}", d);
-                                    d.clone()
-                                } else { vec![] }
-                            } else { vec![] };
-
-                            for i in 0..index_count / 3 {
-                                let a = index_buffer[i * 3].int()? as u16;
-                                let b = index_buffer[i * 3 + 1].int()? as u16;
-                                let c = index_buffer[i * 3 + 2].int()? as u16;
-
-                                // Delete the specific face
-                                if face_delete.contains(&[a, b, c]) {
-                                    debug!("Delete face {}: {} / {} / {}", i, a, b, c);
-                                    continue;
-                                };
-
-                                // Flip again if specific in patch file
-                                let flip = if face_flip.contains(&[a, b, c]) {
-                                    debug!("Flip face {}: {} / {} / {}", i, a, b, c);
-                                    !direction_flip
-                                } else {
-                                    direction_flip
-                                };
-
-                                indices.push(a);
-                                if flip {
-                                    indices.push(c);
-                                    indices.push(b);
-                                } else {
-                                    indices.push(b);
-                                    indices.push(c);
-                                }
-                            }
-
-                            // Update index count after faces deleting
-                            let index_count = indices.len() as i32;
-                            meshes.push(Mesh { sub_material, sub_meshes, index_count, indices });
+                            let indices: Vec<_> = index_buffer.iter()
+                                .map(|x| x.int().unwrap() as u16).collect();
+                            let indices = prepare_index_array(
+                                &object_name, &direction, indices, &patch)?;
+                            meshes.push(Mesh { sub_material, sub_meshes, indices });
                         }
 
                         // Matrices - MATRIX
@@ -502,42 +444,7 @@ impl BWX {
                             trace!("\tMatrix - Count: {}", matrix_array.len() - 1);
                             for m in matrix_array.iter().skip(1) {
                                 let mut buffer = Cursor::new(m.data()?.clone());
-                                // 0 - Timeline, based on 160, in u32
-                                // 1 ~ 16, 4x4 Matrix in f32, column-major order, for eg.
-                                // [0.9542446, -0.2165474, -0.103003055, 0.0]
-                                // [0.09967622, -0.026197463, 0.9785, 0.0]
-                                // [-0.21809866, -0.9594297, -0.0034697813, 0.0]
-                                // [3.17442, 16.080942, 53.538746, 1.0]
-                                // =>
-                                // |  0.9542446,    0.09967622,  -0.21809866,   3.17442   |
-                                // | -0.2165474,   -0.026197463, -0.9594297,    16.080942 |
-                                // | -0.103003055,  0.9785,      -0.0034697813, 53.538746 |
-                                // |  0.0,          0.0,          0.0,          1.0       |
-                                // 17 ~ 23, unknown data, for eg.
-                                // [1.0, 1.0, 1.0, -0.0013206453, 0.00029969783, 0.00014250366, 0.002762136]
-                                // Guessing: [1.0, 1.0, 1.0], scale factor ???
-                                // Left another Vec4(-0.0013206453, 0.00029969783, 0.00014250366, 0.002762136), hmm...
-                                let timeline = buffer.read_i32::<LittleEndian>()?;
-                                let matrix = [
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                ];
-
-                                matrices.push(Matrix { timeline, matrix });
+                                matrices.push(prepare_matrix(&mut buffer)?);
                             }
                         }
 
@@ -576,9 +483,7 @@ impl BWX {
                         // 8 - Array("MATRIX")
                         let object_name = object_array[1].string()?;
                         let material = object_array[3].int()?;
-                        let mut direction = vec![];
-                        direction.write_i32::<BigEndian>(object_array[6].int()?)?;
-                        let direction = std::str::from_utf8(&direction).unwrap();
+                        let direction = get_direction(object_array[6].int()?)?;
                         trace!("Object: {}, Material: {}, Direction: {}", object_name, material, direction);
 
                         {
@@ -635,7 +540,8 @@ impl BWX {
                                     ];
                                     let tex_coord = [
                                         vertex_buffer.read_f32::<LittleEndian>()?,
-                                        vertex_buffer.read_f32::<LittleEndian>()?,
+                                        // Original V is negative, change to positive [0..1]
+                                        1.0 - vertex_buffer.read_f32::<LittleEndian>()?,
                                     ];
                                     vertices.push(Vertex { position, normal, tex_coord });
                                 }
@@ -654,21 +560,14 @@ impl BWX {
                             // and use only "DOUBLE SIDED" material? MAYBE...
                             // TODO: Comment out the code or not?!
                             let mut indices = vec![];
-                            if direction.starts_with("MSHX") {
-                                for _ in 0..index_count / 3 {
-                                    indices.push(index_buffer.read_u16::<LittleEndian>()?);
-                                    let b = index_buffer.read_u16::<LittleEndian>()?;
-                                    let c = index_buffer.read_u16::<LittleEndian>()?;
-                                    indices.push(c);
-                                    indices.push(b);
-                                }
-                            } else {
-                                for _ in 0..index_count {
-                                    indices.push(index_buffer.read_u16::<LittleEndian>()?);
-                                }
+                            for _ in 0..index_count {
+                                indices.push(index_buffer.read_u16::<LittleEndian>()?);
                             }
 
-                            meshes.push(Mesh { sub_material, sub_meshes, index_count, indices });
+                            let indices = prepare_index_array(
+                                &object_name, &direction, indices, &patch)?;
+                            // Update index count after faces deleting
+                            meshes.push(Mesh { sub_material, sub_meshes, indices });
                         }
 
                         // Matrices - MATRIX
@@ -681,42 +580,7 @@ impl BWX {
                             trace!("\tMatrix - Count: {}", matrix_array.len() - 1);
                             for m in matrix_array.iter().skip(1) {
                                 let mut buffer = Cursor::new(m.data()?.clone());
-                                // 0 - Timeline, based on 160, in u32
-                                // 1 ~ 16, 4x4 Matrix in f32, column-major order, for eg.
-                                // [0.9542446, -0.2165474, -0.103003055, 0.0]
-                                // [0.09967622, -0.026197463, 0.9785, 0.0]
-                                // [-0.21809866, -0.9594297, -0.0034697813, 0.0]
-                                // [3.17442, 16.080942, 53.538746, 1.0]
-                                // =>
-                                // |  0.9542446,    0.09967622,  -0.21809866,   3.17442   |
-                                // | -0.2165474,   -0.026197463, -0.9594297,    16.080942 |
-                                // | -0.103003055,  0.9785,      -0.0034697813, 53.538746 |
-                                // |  0.0,          0.0,          0.0,          1.0       |
-                                // 17 ~ 23, unknown data, for eg.
-                                // [1.0, 1.0, 1.0, -0.0013206453, 0.00029969783, 0.00014250366, 0.002762136]
-                                // Guessing: [1.0, 1.0, 1.0], scale factor ???
-                                // Left another Vec4(-0.0013206453, 0.00029969783, 0.00014250366, 0.002762136), hmm...
-                                let timeline = buffer.read_i32::<LittleEndian>()?;
-                                let matrix = [
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                    buffer.read_f32::<LittleEndian>()?,
-                                ];
-
-                                matrices.push(Matrix { timeline, matrix });
+                                matrices.push(prepare_matrix(&mut buffer)?);
                             }
                         }
 
@@ -903,6 +767,110 @@ impl BWX {
     }
 }
 
+fn prepare_matrix(buffer: &mut Cursor<Vec<u8>>) -> Result<Matrix>
+{
+    // 0 - Timeline, based on 160, in u32
+    // 1 ~ 16, 4x4 Matrix in f32, column-major order, for eg.
+    // 17 ~ 23, unknown data, for eg.
+    // ------------------------------------------------------------
+    // [0.9542446, -0.2165474, -0.103003055, 0.0]
+    // [0.09967622, -0.026197463, 0.9785, 0.0]
+    // [-0.21809866, -0.9594297, -0.0034697813, 0.0]
+    // [3.17442, 16.080942, 53.538746, 1.0]
+    // =>
+    // |  0.9542446,    0.09967622,  -0.21809866,   3.17442   |
+    // | -0.2165474,   -0.026197463, -0.9594297,    16.080942 |
+    // | -0.103003055,  0.9785,      -0.0034697813, 53.538746 |
+    // |  0.0,          0.0,          0.0,          1.0       |
+    Ok(Matrix {
+        timeline: buffer.read_i32::<LittleEndian>()?,
+        matrix: [
+            buffer.read_f32::<LittleEndian>()?,
+            buffer.read_f32::<LittleEndian>()?,
+            buffer.read_f32::<LittleEndian>()?,
+            buffer.read_f32::<LittleEndian>()?,
+            buffer.read_f32::<LittleEndian>()?,
+            buffer.read_f32::<LittleEndian>()?,
+            buffer.read_f32::<LittleEndian>()?,
+            buffer.read_f32::<LittleEndian>()?,
+            buffer.read_f32::<LittleEndian>()?,
+            buffer.read_f32::<LittleEndian>()?,
+            buffer.read_f32::<LittleEndian>()?,
+            buffer.read_f32::<LittleEndian>()?,
+            buffer.read_f32::<LittleEndian>()?,
+            buffer.read_f32::<LittleEndian>()?,
+            buffer.read_f32::<LittleEndian>()?,
+            buffer.read_f32::<LittleEndian>()?,
+        ],
+    })
+}
+
+fn get_direction(direction: i32) -> Result<String> {
+    let mut buffer = vec![];
+    buffer.write_i32::<BigEndian>(direction)?;
+    Ok(std::str::from_utf8(&buffer).unwrap().to_string())
+}
+
+fn prepare_index_array(object_name: &str, direction: &str,
+                       index_buffer: Vec<u16>, patch: &PatchFile) -> Result<Vec<u16>> {
+    let mut direction_flip = if direction.starts_with("MSHX") { true } else { false };
+    let patch_mesh: Vec<_> = patch.mesh.names.iter().map(|x| x.to_uppercase()).collect();
+    let patch_face = if let Some(ref f) = patch.face { f.clone() } else { vec![] };
+
+    if patch_mesh.contains(&object_name.to_uppercase()) {
+        debug!("Patching '{}'", object_name);
+        direction_flip = !direction_flip;
+    }
+
+    // Flip face
+    let face_flip = if let Some(f) = patch_face.iter()
+        .find(|x| x.name.contains(&object_name.to_uppercase()))
+    {
+        f.flip.clone()
+    } else { vec![] };
+
+    // Delete face
+    let face_delete = if let Some(f) = patch_face.iter()
+        .find(|x| x.name.contains(&object_name.to_uppercase()))
+    {
+        if let Some(d) = &f.delete {
+            d.clone()
+        } else { vec![] }
+    } else { vec![] };
+
+    let mut indices = vec![];
+
+    for i in 0..index_buffer.len() / 3 {
+        let a = index_buffer[i * 3];
+        let b = index_buffer[i * 3 + 1];
+        let c = index_buffer[i * 3 + 2];
+
+        // Delete the specific face
+        if face_delete.contains(&[a, b, c]) {
+            debug!("Delete face {}: {} / {} / {}", i, a, b, c);
+            continue;
+        };
+
+        // Flip again if specific in patch file
+        let flip = if face_flip.contains(&[a, b, c]) {
+            debug!("Flip face {}: {} / {} / {}", i, a, b, c);
+            !direction_flip
+        } else {
+            direction_flip
+        };
+
+        let (a, b, c) = if flip { (a, c, b) } else { (a, b, c) };
+
+        indices.push(a);
+        indices.push(b);
+        indices.push(c);
+    }
+    Ok(indices)
+}
+
+fn change_order(a: u16, b: u16, c: u16) -> (u16, u16, u16) {
+    (a, c, b)
+}
 
 #[cfg(test)]
 mod tests {
@@ -935,4 +903,3 @@ mod tests {
         assert_eq!(bwx.read_string().unwrap().as_str(), "0", "The string should be '0'");
     }
 }
-

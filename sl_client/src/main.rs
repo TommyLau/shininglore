@@ -21,7 +21,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // gltf.load_from_bwx("Assets/Graphic/NPC/WORLD01/HEROSANDRA.PNX/HEROSANDRA_WALK.PNX")?;
     // gltf.load_from_bwx("Assets/Graphic/MONSTER/MON059.PNX/MON059_DEFAULTA.PNX")?;
     // gltf.load_from_bwx("Assets/Graphic/INTERFACE/Login_stage.pnx/LOGIN_STAGE_DEFAULT.PNX")?;
-    gltf.load_from_bwx("Assets/Graphic/NPC/WORLD01/HEROSANDRA.PNX/HEROSANDRA_DEFAULT.PNX")?;
+    // gltf.load_from_bwx("Assets/Graphic/NPC/WORLD01/HEROSANDRA.PNX/HEROSANDRA_DEFAULT.PNX")?;
+    gltf.load_from_bwx("Assets/Graphic/NPC/WORLD01/HEROETO.PNX/HEROETO_DEFAULT.PNX")?;
     gltf.save_gltf("./tmp2")?;
 
     Ok(())

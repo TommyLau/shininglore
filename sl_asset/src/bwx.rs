@@ -15,7 +15,7 @@ struct PatchFileMesh {
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
 struct PatchFileFace {
     name: String,
-    index: Vec<u16>,
+    flip: Vec<[u16; 3]>,
 }
 
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -446,8 +446,8 @@ impl BWX {
                             let faces = if let Some(f) = patch_face.iter()
                                 .find(|x| x.name.contains(&object_name.to_uppercase()))
                             {
-                                debug!("Tables find? {:#?}, face count: {}", f.index, index_count/3);
-                                f.index.clone()
+                                debug!("Tables find? {:#?}, face count: {}", f.flip, index_count/3);
+                                f.flip.clone()
                             } else { vec![] };
 
                             for i in 0..index_count / 3 {
@@ -456,8 +456,8 @@ impl BWX {
                                 let c = index_buffer[i * 3 + 2].int()? as u16;
 
                                 // Flip again if specific in patch file
-                                let flip = if faces.contains(&(i as u16)) {
-                                    debug!("Flip face {}", i);
+                                let flip = if faces.contains(&[a, c, b]) {
+                                    debug!("Flip face {}: {} / {} / {}", i, a, b, c);
                                     !direction_flip
                                 } else {
                                     direction_flip

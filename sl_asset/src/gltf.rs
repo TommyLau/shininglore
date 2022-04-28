@@ -366,9 +366,9 @@ impl Gltf {
             }
         }
 
-        let mut split_name = self.filename.file_stem().unwrap().to_str().unwrap().split('_');
-        let scene_name = split_name.next().unwrap().to_uppercase();
-        let animation_name = split_name.last().unwrap().to_lowercase();
+        let mut split_name: Vec<_> = self.filename.file_stem().unwrap().to_str().unwrap().split('_').collect();
+        let animation_name = split_name.pop().unwrap().to_lowercase();
+        let scene_name = split_name.join("_");
 
         let buffer_json = json::Buffer {
             byte_length: self.buffer.len() as u32,
@@ -455,6 +455,7 @@ impl Gltf {
                     self.filename.parent().unwrap().parent().unwrap().join("TGA"),
                     std::path::PathBuf::from("Assets/Graphic/PROPIN/WORLD01/TGA"),
                     std::path::PathBuf::from("Assets/Graphic/BUILDINGEX/WORLD01/TGA"),
+                    std::path::PathBuf::from("Assets/Graphic/NPC/WORLD01/TGA"),
                 ];
                 let files: Vec<_> = paths.iter().map(|x| x.join(&tga_file)).collect();
 

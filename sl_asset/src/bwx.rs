@@ -334,7 +334,10 @@ impl BWX {
                         {
                             // Do not process special object starts with EV_ / EP_
                             // FIXME: Enable later when process with collision detection and etc.
-                            if object_name.starts_with("EV_") || object_name.starts_with("EP_") {
+                            if object_name.starts_with("EV_")
+                                || object_name.starts_with("EP_")
+                                || object_name.starts_with("@")
+                            {
                                 continue;
                             }
                         }

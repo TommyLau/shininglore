@@ -13,8 +13,15 @@ struct PatchFileMesh {
 }
 
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
+struct PatchFileFace {
+    name: String,
+    index: Vec<u16>,
+}
+
+#[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
 struct PatchFile {
     mesh: PatchFileMesh,
+    face: Option<Vec<PatchFileFace>>,
 }
 
 // u8, i8, u16, i16, u32, i32, u64, i64, u128, i128, usize, isize, f32, f64
@@ -203,12 +210,16 @@ impl BWX {
         patch_file.push("Patch.toml");
 
         let patch = if patch_file.exists() {
-            let data = std::fs::read(patch_file)?;
-            let patch: PatchFile = toml::from_slice(&data)?;
+            let data = std::fs::read_to_string(patch_file)?;
+            let patch: PatchFile = toml::from_str(&data)?;
+            // let a: toml::Value = data.parse().unwrap();
+            // debug!("Parse {:#?}", a);
             patch
         } else { PatchFile { ..Default::default() } };
-        let patches = patch.mesh.names;
-        debug!("Patch contents: {:#?}", patches);
+        let patch_mesh = patch.mesh.names;
+        debug!("Patch contents: {:#?}", patch_mesh);
+        let patch_face = if let Some(f) = patch.face { f } else { vec![] };
+        debug!("Tables? {:#?}", patch_face);
 
         let data = std::fs::read(filename.as_ref())?;
         self.content = Cursor::new(data);
@@ -430,22 +441,39 @@ impl BWX {
                             let mut indices = vec![];
 
                             let mut direction_flip = direction.starts_with("MSHX");
-                            if patches.contains(&object_name.to_uppercase()) {
+                            if patch_mesh.contains(&object_name.to_uppercase()) {
                                 debug!("Patching '{}'", object_name);
                                 direction_flip = !direction_flip;
                             }
 
-                            if direction_flip {
-                                for i in (0..index_count).step_by(3) {
-                                    indices.push(index_buffer[i].int()? as u16);
-                                    let b = index_buffer[i + 1].int()? as u16;
-                                    let c = index_buffer[i + 2].int()? as u16;
+                            //
+                            let faces = if let Some(f) = patch_face.iter()
+                                .find(|x| x.name.contains(&object_name.to_uppercase()))
+                            {
+                                debug!("Tables find? {:#?}, face count: {}", f.index, index_count/3);
+                                f.index.clone()
+                            } else { vec![] };
+
+                            for i in 0..index_count / 3 {
+                                let a = index_buffer[i * 3].int()? as u16;
+                                let b = index_buffer[i * 3 + 1].int()? as u16;
+                                let c = index_buffer[i * 3 + 2].int()? as u16;
+
+                                // Flip again if specific in patch file
+                                let flip = if faces.contains(&(i as u16)) {
+                                    debug!("Flip face {}", i);
+                                    !direction_flip
+                                } else {
+                                    direction_flip
+                                };
+
+                                indices.push(a);
+                                if flip {
                                     indices.push(c);
                                     indices.push(b);
-                                }
-                            } else {
-                                for i in index_buffer {
-                                    indices.push(i.int()? as u16);
+                                } else {
+                                    indices.push(b);
+                                    indices.push(c);
                                 }
                             }
 

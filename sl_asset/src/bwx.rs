@@ -831,11 +831,22 @@ fn prepare_index_array(object_name: &str, direction: &str,
         } else { (vec![], vec![]) };
 
     let mut indices = vec![];
+    let mut duplicate = vec![];
 
     for i in 0..index_buffer.len() / 3 {
         let a = index_buffer[i * 3];
         let b = index_buffer[i * 3 + 1];
         let c = index_buffer[i * 3 + 2];
+
+        if duplicate.contains(&[a, b, c]) {
+            warn!("Ignore duplicate triangle face {}: {} / {} / {}", i, a, b, c);
+            continue;
+        } else {
+            duplicate.push([a, b, c]);
+        }
+
+        // Flip normally then check later
+        let (a, b, c) = if direction_flip { (a, c, b) } else { (a, b, c) };
 
         // Delete the specific face
         if face_delete.contains(&[a, b, c]) {
@@ -843,15 +854,11 @@ fn prepare_index_array(object_name: &str, direction: &str,
             continue;
         };
 
-        // Flip again if specific in patch file
-        let flip = if face_flip.contains(&[a, b, c]) {
+        // Flip again if specified in patch file
+        let (a, b, c) = if face_flip.contains(&[a, b, c]) {
             debug!("Flip face {}: {} / {} / {}", i, a, b, c);
-            !direction_flip
-        } else {
-            direction_flip
-        };
-
-        let (a, b, c) = if flip { (a, c, b) } else { (a, b, c) };
+            (a, c, b)
+        } else { (a, b, c) };
 
         indices.push(a);
         indices.push(b);

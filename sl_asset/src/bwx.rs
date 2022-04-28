@@ -16,6 +16,7 @@ struct PatchFileMesh {
 struct PatchFileFace {
     name: String,
     flip: Vec<[u16; 3]>,
+    delete: Option<Vec<[u16; 3]>>,
 }
 
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -442,12 +443,19 @@ impl BWX {
                                 direction_flip = !direction_flip;
                             }
 
-                            //
-                            let faces = if let Some(f) = patch_face.iter()
+                            let face_flip = if let Some(f) = patch_face.iter()
                                 .find(|x| x.name.contains(&object_name.to_uppercase()))
                             {
-                                debug!("Tables find? {:#?}, face count: {}", f.flip, index_count/3);
                                 f.flip.clone()
+                            } else { vec![] };
+
+                            let face_delete = if let Some(f) = patch_face.iter()
+                                .find(|x| x.name.contains(&object_name.to_uppercase()))
+                            {
+                                if let Some(d) = &f.delete {
+                                    debug!("Delete faces: {:?}", d);
+                                    d.clone()
+                                } else { vec![] }
                             } else { vec![] };
 
                             for i in 0..index_count / 3 {
@@ -455,8 +463,14 @@ impl BWX {
                                 let b = index_buffer[i * 3 + 1].int()? as u16;
                                 let c = index_buffer[i * 3 + 2].int()? as u16;
 
+                                // Delete the specific face
+                                if face_delete.contains(&[a, b, c]) {
+                                    debug!("Delete face {}: {} / {} / {}", i, a, b, c);
+                                    continue;
+                                };
+
                                 // Flip again if specific in patch file
-                                let flip = if faces.contains(&[a, c, b]) {
+                                let flip = if face_flip.contains(&[a, b, c]) {
                                     debug!("Flip face {}: {} / {} / {}", i, a, b, c);
                                     !direction_flip
                                 } else {
@@ -473,7 +487,8 @@ impl BWX {
                                 }
                             }
 
-                            let index_count = index_count as i32;
+                            // Update index count after faces deleting
+                            let index_count = indices.len() as i32;
                             meshes.push(Mesh { sub_material, sub_meshes, index_count, indices });
                         }
 

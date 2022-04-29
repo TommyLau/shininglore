@@ -336,7 +336,7 @@ impl BWX {
                             // FIXME: Enable later when process with collision detection and etc.
                             if object_name.starts_with("EV_")
                                 || object_name.starts_with("EP_")
-                                || object_name.starts_with("@")
+                                || object_name.starts_with('@')
                                 || object_name.starts_with("SFX")
                             {
                                 continue;
@@ -435,30 +435,6 @@ impl BWX {
                                 .map(|x| x.int().unwrap() as u16).collect();
                             let indices = prepare_index_array(
                                 &object_name, &direction, indices, &patch)?;
-
-                            for i in 0..indices.len() / 3 {
-                                let a = indices[i * 3] as usize;
-                                let b = indices[i * 3 + 1] as usize;
-                                let c = indices[i * 3 + 2] as usize;
-                                let va = Vec3::new(sub_meshes[0].vertices[a].position.clone());
-                                let vb = Vec3::new(sub_meshes[0].vertices[b].position.clone());
-                                let vc = Vec3::new(sub_meshes[0].vertices[c].position.clone());
-                                let v1 = vb - va;
-                                let v2 = vc - va;
-                                let normal = v1.cross(v2).normalize();
-                                let na = Vec3::new(sub_meshes[0].vertices[a].normal.clone()) + normal;
-                                let nb = Vec3::new(sub_meshes[0].vertices[b].normal.clone()) + normal;
-                                let nc = Vec3::new(sub_meshes[0].vertices[c].normal.clone()) + normal;
-                                sub_meshes[0].vertices[a].normal = na.into();
-                                sub_meshes[0].vertices[b].normal = nb.into();
-                                sub_meshes[0].vertices[c].normal = nc.into();
-                            }
-
-                            for i in 0..sub_meshes[0].vertices.len() {
-                                let n = Vec3::new(sub_meshes[0].vertices[i].normal.clone());
-                                let n2 = n.normalize();
-                                sub_meshes[0].vertices[i].normal = n2.into();
-                            }
                             meshes.push(Mesh { sub_material, sub_meshes, indices });
                         }
 
@@ -594,7 +570,6 @@ impl BWX {
 
                             let indices = prepare_index_array(
                                 &object_name, &direction, indices, &patch)?;
-                            // Update index count after faces deleting
                             meshes.push(Mesh { sub_material, sub_meshes, indices });
                         }
 
@@ -626,6 +601,35 @@ impl BWX {
                 }
                 _ => {
                     error!("Unknown block: {}", node_name);
+                }
+            }
+        }
+
+        // Re-calculate vertex normals
+        for o in &mut self.objects {
+            for m in &mut o.meshes {
+                for sm in &mut m.sub_meshes {
+                    for i in 0..m.indices.len() / 3 {
+                        let a = m.indices[i * 3] as usize;
+                        let b = m.indices[i * 3 + 1] as usize;
+                        let c = m.indices[i * 3 + 2] as usize;
+                        let va = Vec3::new(sm.vertices[a].position);
+                        let vb = Vec3::new(sm.vertices[b].position);
+                        let vc = Vec3::new(sm.vertices[c].position);
+                        let v1 = vb - va;
+                        let v2 = vc - va;
+                        let normal = v1.cross(v2).normalize();
+                        let na = Vec3::new(sm.vertices[a].normal) + normal;
+                        let nb = Vec3::new(sm.vertices[b].normal) + normal;
+                        let nc = Vec3::new(sm.vertices[c].normal) + normal;
+                        sm.vertices[a].normal = na.into();
+                        sm.vertices[b].normal = nb.into();
+                        sm.vertices[c].normal = nc.into();
+                    }
+
+                    for v in &mut sm.vertices {
+                        v.normal = Vec3::new(v.normal).normalize().into();
+                    }
                 }
             }
         }

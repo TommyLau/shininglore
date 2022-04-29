@@ -35,8 +35,8 @@ impl Vec3 {
     pub fn normalize(&mut self) {
         let mut mag = self.magnitude();
         if mag == 0.0 {
-            // Set normal to world's UP (0, 1, 0) if normal was Zero
-            self.y = 1.0;
+            // Set normal to ShiningLore Model +Z Up (0, 1, 1) if normal was Zero
+            self.z = 1.0;
             return;
         }
         while mag < f32::EPSILON {

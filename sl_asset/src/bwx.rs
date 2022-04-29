@@ -584,11 +584,11 @@ impl BWX {
                                         vertex_buffer.read_f32::<LittleEndian>()?,
                                         vertex_buffer.read_f32::<LittleEndian>()?,
                                     ]);
-                                    let normal = Vec3::new([
-                                        vertex_buffer.read_f32::<LittleEndian>()?,
-                                        vertex_buffer.read_f32::<LittleEndian>()?,
-                                        vertex_buffer.read_f32::<LittleEndian>()?,
-                                    ]);
+                                    // Discard original normal for re-calculation
+                                    let normal = Vec3::new([0.0, 0.0, 0.0]);
+                                    vertex_buffer.read_f32::<LittleEndian>()?;
+                                    vertex_buffer.read_f32::<LittleEndian>()?;
+                                    vertex_buffer.read_f32::<LittleEndian>()?;
                                     let tex_coord = [
                                         vertex_buffer.read_f32::<LittleEndian>()?,
                                         // Original V is negative, change to positive [0..1]

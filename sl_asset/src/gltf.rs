@@ -1,4 +1,5 @@
 use crate::bwx::*;
+use crate::math::Vec3;
 use std::io::Cursor;
 use std::mem;
 use std::path::PathBuf;
@@ -151,32 +152,32 @@ impl Gltf {
                         }));
 
                     // Vertex
-                    let mut v_min = [0.0f32, 0.0, 0.0];
-                    let mut v_max = [0.0f32, 0.0, 0.0];
+                    let mut v_min = Vec3::new([0.0, 0.0, 0.0]);
+                    let mut v_max = Vec3::new([0.0, 0.0, 0.0]);
                     let mut v_set = false;
                     let mut vertex_buffer = Cursor::new(vec![]);
 
                     for v in &sm.vertices {
                         // Write position
-                        vertex_buffer.write_f32::<LittleEndian>(v.position[0])?;
-                        vertex_buffer.write_f32::<LittleEndian>(v.position[1])?;
-                        vertex_buffer.write_f32::<LittleEndian>(v.position[2])?;
+                        vertex_buffer.write_f32::<LittleEndian>(v.position.x)?;
+                        vertex_buffer.write_f32::<LittleEndian>(v.position.y)?;
+                        vertex_buffer.write_f32::<LittleEndian>(v.position.z)?;
                         // Write normal
-                        vertex_buffer.write_f32::<LittleEndian>(v.normal[0])?;
-                        vertex_buffer.write_f32::<LittleEndian>(v.normal[1])?;
-                        vertex_buffer.write_f32::<LittleEndian>(v.normal[2])?;
+                        vertex_buffer.write_f32::<LittleEndian>(v.normal.x)?;
+                        vertex_buffer.write_f32::<LittleEndian>(v.normal.y)?;
+                        vertex_buffer.write_f32::<LittleEndian>(v.normal.z)?;
                         // Write texture coordinate
                         vertex_buffer.write_f32::<LittleEndian>(v.tex_coord[0])?;
                         vertex_buffer.write_f32::<LittleEndian>(v.tex_coord[1])?;
 
                         if v_set {
                             let v = v.position;
-                            if v[0] > v_max[0] { v_max[0] = v[0]; }
-                            if v[1] > v_max[1] { v_max[1] = v[1]; }
-                            if v[2] > v_max[2] { v_max[2] = v[2]; }
-                            if v[0] < v_min[0] { v_min[0] = v[0]; }
-                            if v[1] < v_min[1] { v_min[1] = v[1]; }
-                            if v[2] < v_min[2] { v_min[2] = v[2]; }
+                            if v.x > v_max.x { v_max.x = v.x; }
+                            if v.y > v_max.y { v_max.y = v.y; }
+                            if v.z > v_max.z { v_max.z = v.z; }
+                            if v.x < v_min.x { v_min.x = v.x; }
+                            if v.y < v_min.y { v_min.y = v.y; }
+                            if v.z < v_min.z { v_min.z = v.z; }
                         } else {
                             v_min = v.position;
                             v_max = v.position;
@@ -190,8 +191,8 @@ impl Gltf {
                         sm.vertices.len() as u32,
                         json::accessor::ComponentType::F32,
                         json::accessor::Type::Vec3,
-                        Some(json!(v_min)),
-                        Some(json!(v_max)),
+                        Some(json!(v_min.into())),
+                        Some(json!(v_max.into())),
                         Some(o.name.clone() + "_Vertex"),
                     );
                     self.accessors.push(accessor.clone());

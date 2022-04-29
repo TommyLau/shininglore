@@ -131,8 +131,8 @@ pub struct Material {
 
 #[derive(Debug, Default)]
 pub struct Vertex {
-    pub position: [f32; 3],
-    pub normal: [f32; 3],
+    pub position: Vec3,
+    pub normal: Vec3,
     pub tex_coord: [f32; 2],
 }
 
@@ -375,11 +375,11 @@ impl BWX {
                                 for v in vertex_array {
                                     let vertex_buffer = v.data()?.clone();
                                     let mut vertex_buffer = Cursor::new(vertex_buffer);
-                                    let position = [
+                                    let position = Vec3::new([
                                         vertex_buffer.read_f32::<LittleEndian>()?,
                                         vertex_buffer.read_f32::<LittleEndian>()?,
                                         vertex_buffer.read_f32::<LittleEndian>()?,
-                                    ];
+                                    ]);
                                     positions.push(position);
                                 }
 
@@ -408,7 +408,7 @@ impl BWX {
                                     let vertices: Vec<_> = zip(positions, tex_coords)
                                         .map(|x| Vertex {
                                             position: x.0,
-                                            normal: [0.0, 0.0, 0.0],
+                                            normal: Vec3::new([0.0, 0.0, 0.0]),
                                             tex_coord: x.1,
                                         })
                                         .collect();
@@ -532,16 +532,16 @@ impl BWX {
                                 // Vertex
                                 let mut vertices = vec![];
                                 for _ in 0..vertex_count {
-                                    let position = [
+                                    let position = Vec3::new([
                                         vertex_buffer.read_f32::<LittleEndian>()?,
                                         vertex_buffer.read_f32::<LittleEndian>()?,
                                         vertex_buffer.read_f32::<LittleEndian>()?,
-                                    ];
-                                    let normal = [
+                                    ]);
+                                    let normal = Vec3::new([
                                         vertex_buffer.read_f32::<LittleEndian>()?,
                                         vertex_buffer.read_f32::<LittleEndian>()?,
                                         vertex_buffer.read_f32::<LittleEndian>()?,
-                                    ];
+                                    ]);
                                     let tex_coord = [
                                         vertex_buffer.read_f32::<LittleEndian>()?,
                                         // Original V is negative, change to positive [0..1]
@@ -613,22 +613,22 @@ impl BWX {
                         let a = m.indices[i * 3] as usize;
                         let b = m.indices[i * 3 + 1] as usize;
                         let c = m.indices[i * 3 + 2] as usize;
-                        let va = Vec3::new(sm.vertices[a].position);
-                        let vb = Vec3::new(sm.vertices[b].position);
-                        let vc = Vec3::new(sm.vertices[c].position);
+                        let va = sm.vertices[a].position;
+                        let vb = sm.vertices[b].position;
+                        let vc = sm.vertices[c].position;
                         let v1 = vb - va;
                         let v2 = vc - va;
                         let normal = v1.cross(v2).normalize();
-                        let na = Vec3::new(sm.vertices[a].normal) + normal;
-                        let nb = Vec3::new(sm.vertices[b].normal) + normal;
-                        let nc = Vec3::new(sm.vertices[c].normal) + normal;
-                        sm.vertices[a].normal = na.into();
-                        sm.vertices[b].normal = nb.into();
-                        sm.vertices[c].normal = nc.into();
+                        let na = sm.vertices[a].normal + normal;
+                        let nb = sm.vertices[b].normal + normal;
+                        let nc = sm.vertices[c].normal + normal;
+                        sm.vertices[a].normal = na;
+                        sm.vertices[b].normal = nb;
+                        sm.vertices[c].normal = nc;
                     }
 
                     for v in &mut sm.vertices {
-                        v.normal = Vec3::new(v.normal).normalize().into();
+                        v.normal = v.normal.normalize();
                     }
                 }
             }

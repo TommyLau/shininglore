@@ -33,11 +33,18 @@ impl Vec3 {
     }
 
     pub fn normalize(&mut self) {
-        let mag = self.magnitude();
-        // Add check to avoid NaN error!
-        if mag > f32::EPSILON {
-            self.multiply(1.0f32 / mag)
+        let mut mag = self.magnitude();
+        if mag == 0.0 {
+            // Set normal to world's UP (0, 1, 0) if normal was Zero
+            self.y = 1.0;
+            return;
         }
+        while mag < f32::EPSILON {
+            // Add check to avoid NaN error!
+            self.multiply(10.0);
+            mag = self.magnitude();
+        }
+        self.multiply(1.0f32 / mag)
     }
 
     pub fn magnitude(&self) -> f32 {

@@ -455,10 +455,13 @@ impl BWX {
                                 error!("Index count incorrect!");
                             }
 
-                            let indices: Vec<_> = index_buffer
+                            let mut indices: Vec<_> = index_buffer
                                 .iter()
                                 .map(|x| x.int().unwrap() as u16)
                                 .collect();
+                            sub_meshes.iter_mut().for_each(|sm| {
+                                remove_unused_vertex(&mut sm.vertices, &mut indices);
+                            });
                             let indices =
                                 prepare_index_array(&object_name, &direction, indices, &patch)?;
                             meshes.push(Mesh {
@@ -618,7 +621,9 @@ impl BWX {
                             for _ in 0..index_count {
                                 indices.push(index_buffer.read_u16::<LittleEndian>()?);
                             }
-
+                            sub_meshes.iter_mut().for_each(|sm| {
+                                remove_unused_vertex(&mut sm.vertices, &mut indices);
+                            });
                             let indices =
                                 prepare_index_array(&object_name, &direction, indices, &patch)?;
                             meshes.push(Mesh {
@@ -990,6 +995,22 @@ fn prepare_index_array(
         indices.push(c);
     }
     Ok(indices)
+}
+
+fn remove_unused_vertex(vertices: &mut Vec<Vertex>, indices: &mut Vec<u16>) {
+    let unused: Vec<_> = (0..vertices.len() as u16)
+        .rev()
+        .filter(|x| !indices.contains(&x))
+        .collect();
+    unused.iter().for_each(|x| {
+        debug!("Removing unused vertex: {}", x);
+        vertices.remove(*x as usize);
+        indices.iter_mut().for_each(|i| {
+            if *i > *x {
+                *i -= 1
+            };
+        });
+    });
 }
 
 #[cfg(test)]

@@ -7,13 +7,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             tracing_subscriber::fmt().with_env_filter(filter).init();
         } else {
             match filter.to_string().as_str() {
-                "error" | "warn" | "info" => { tracing_subscriber::fmt().with_env_filter(filter).init(); }
+                "error" | "warn" | "info" => {
+                    tracing_subscriber::fmt().with_env_filter(filter).init();
+                }
                 _ => {}
             }
         }
     } else {
         tracing_subscriber::fmt()
-            .with_max_level(if cfg!(debug_assertions) { Level::DEBUG } else { Level::ERROR })
+            .with_max_level(if cfg!(debug_assertions) {
+                Level::DEBUG
+            } else {
+                Level::ERROR
+            })
             .init();
     }
 

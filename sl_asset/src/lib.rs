@@ -1,7 +1,7 @@
 pub mod bwx;
-pub mod math;
 pub mod gltf;
+pub mod math;
 
 pub use crate::bwx::*;
-pub use crate::math::*;
 pub use crate::gltf::*;
+pub use crate::math::*;

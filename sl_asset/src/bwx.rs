@@ -1,9 +1,9 @@
+use crate::math::Vec3;
+use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Read};
 use std::iter::zip;
 use std::path::Path;
-use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use tracing::{debug, error, info, trace, warn};
-use crate::math::Vec3;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -65,11 +65,10 @@ impl SlType {
         }
     }
 
-    pub fn string(&self) -> Result<String>
-    {
+    pub fn string(&self) -> Result<String> {
         match self {
-            SlType::String(v) | SlType::DArray(v, _) => { Ok(v.into()) }
-            _ => Err("Cannot get string from SlType".into())
+            SlType::String(v) | SlType::DArray(v, _) => Ok(v.into()),
+            _ => Err("Cannot get string from SlType".into()),
         }
     }
 
@@ -203,7 +202,8 @@ impl BWX {
     #[tracing::instrument(skip(self, filename))]
     //pub fn load_from_file(&mut self, filename: &str) -> Result<()> {
     pub fn load_from_file<T>(&mut self, filename: T) -> Result<()>
-        where T: AsRef<Path>
+    where
+        T: AsRef<Path>,
     {
         info!("{}", filename.as_ref().display());
         let mut patch_file = filename.as_ref().to_owned();
@@ -214,7 +214,11 @@ impl BWX {
             let data = std::fs::read_to_string(patch_file)?;
             let patch: PatchFile = toml::from_str(&data)?;
             patch
-        } else { PatchFile { ..Default::default() } };
+        } else {
+            PatchFile {
+                ..Default::default()
+            }
+        };
 
         let data = std::fs::read(filename.as_ref())?;
         self.content = Cursor::new(data);
@@ -290,10 +294,18 @@ impl BWX {
                                     // 0 - "TEX"
                                     // 1 - Most 0x00, timer?
                                     // 2 - Filename
-                                    Some(texture_array[2].string()?
-                                        .split('\\').last().unwrap()
-                                        .split('.').next().unwrap()
-                                        .to_owned() + ".png")
+                                    Some(
+                                        texture_array[2]
+                                            .string()?
+                                            .split('\\')
+                                            .last()
+                                            .unwrap()
+                                            .split('.')
+                                            .next()
+                                            .unwrap()
+                                            .to_owned()
+                                            + ".png",
+                                    )
                                 } else {
                                     None
                                 },
@@ -329,7 +341,12 @@ impl BWX {
                         let object_name = object_array[1].string()?;
                         let material = object_array[3].int()?;
                         let direction = get_direction(object_array[6].int()?)?;
-                        trace!("Object: {}, Material: {}, Direction: {}", object_name, material, direction);
+                        trace!(
+                            "Object: {}, Material: {}, Direction: {}",
+                            object_name,
+                            material,
+                            direction
+                        );
 
                         {
                             // Do not process special object starts with EV_ / EP_
@@ -368,7 +385,11 @@ impl BWX {
                                 let timeline = sub_mesh[1].int()?;
                                 let vertex_array = sub_mesh[2].array()?;
                                 let vertex_count = vertex_array.len();
-                                trace!("\t\tSub_Mesh - Timeline: {}, Count: {}", timeline, vertex_count );
+                                trace!(
+                                    "\t\tSub_Mesh - Timeline: {}, Count: {}",
+                                    timeline,
+                                    vertex_count
+                                );
 
                                 // Vertex
                                 let mut positions = vec![];
@@ -399,8 +420,11 @@ impl BWX {
                                     }
                                 } else {
                                     // Copy UV data from first frame
-                                    tex_coords = sub_meshes[0].vertices.iter()
-                                        .map(|x| x.tex_coord).collect();
+                                    tex_coords = sub_meshes[0]
+                                        .vertices
+                                        .iter()
+                                        .map(|x| x.tex_coord)
+                                        .collect();
                                 }
 
                                 // Generate sub meshes
@@ -431,11 +455,17 @@ impl BWX {
                                 error!("Index count incorrect!");
                             }
 
-                            let indices: Vec<_> = index_buffer.iter()
-                                .map(|x| x.int().unwrap() as u16).collect();
-                            let indices = prepare_index_array(
-                                &object_name, &direction, indices, &patch)?;
-                            meshes.push(Mesh { sub_material, sub_meshes, indices });
+                            let indices: Vec<_> = index_buffer
+                                .iter()
+                                .map(|x| x.int().unwrap() as u16)
+                                .collect();
+                            let indices =
+                                prepare_index_array(&object_name, &direction, indices, &patch)?;
+                            meshes.push(Mesh {
+                                sub_material,
+                                sub_meshes,
+                                indices,
+                            });
                         }
 
                         // Matrices - MATRIX
@@ -452,7 +482,12 @@ impl BWX {
                             }
                         }
 
-                        self.objects.push(Object { name: object_name, material, meshes, matrices });
+                        self.objects.push(Object {
+                            name: object_name,
+                            material,
+                            meshes,
+                            matrices,
+                        });
 
                         // SFX Blocks?
                         // if object_array.len() > 9 {
@@ -460,7 +495,10 @@ impl BWX {
                         //     debug!("{:?}", object_array[9].array()?);
                         // }
                         if object_array.len() > 10 {
-                            warn!("---- WARN: Found block 11 in OBJ2, for weapon?\n{:?}", object_array[10].array()?);
+                            warn!(
+                                "---- WARN: Found block 11 in OBJ2, for weapon?\n{:?}",
+                                object_array[10].array()?
+                            );
                         }
                     }
                 }
@@ -488,7 +526,12 @@ impl BWX {
                         let object_name = object_array[1].string()?;
                         let material = object_array[3].int()?;
                         let direction = get_direction(object_array[6].int()?)?;
-                        trace!("Object: {}, Material: {}, Direction: {}", object_name, material, direction);
+                        trace!(
+                            "Object: {}, Material: {}, Direction: {}",
+                            object_name,
+                            material,
+                            direction
+                        );
 
                         {
                             // Do not process special object starts with EV_ / EP_
@@ -526,7 +569,11 @@ impl BWX {
                                 let vertex_count = sub_mesh[3].int()?;
                                 let _vertex_size = sub_mesh[4].int()?;
                                 let vertex_buffer = sub_mesh[5].data()?.clone();
-                                trace!("\t\tSub_Mesh - Timeline: {}, Count: {}", timeline, vertex_count );
+                                trace!(
+                                    "\t\tSub_Mesh - Timeline: {}, Count: {}",
+                                    timeline,
+                                    vertex_count
+                                );
                                 let mut vertex_buffer = Cursor::new(vertex_buffer);
 
                                 // Vertex
@@ -547,7 +594,11 @@ impl BWX {
                                         // Original V is negative, change to positive [0..1]
                                         1.0 - vertex_buffer.read_f32::<LittleEndian>()?,
                                     ];
-                                    vertices.push(Vertex { position, normal, tex_coord });
+                                    vertices.push(Vertex {
+                                        position,
+                                        normal,
+                                        tex_coord,
+                                    });
                                 }
                                 sub_meshes.push(SubMesh { timeline, vertices });
                             }
@@ -568,9 +619,13 @@ impl BWX {
                                 indices.push(index_buffer.read_u16::<LittleEndian>()?);
                             }
 
-                            let indices = prepare_index_array(
-                                &object_name, &direction, indices, &patch)?;
-                            meshes.push(Mesh { sub_material, sub_meshes, indices });
+                            let indices =
+                                prepare_index_array(&object_name, &direction, indices, &patch)?;
+                            meshes.push(Mesh {
+                                sub_material,
+                                sub_meshes,
+                                indices,
+                            });
                         }
 
                         // Matrices - MATRIX
@@ -587,7 +642,12 @@ impl BWX {
                             }
                         }
 
-                        self.objects.push(Object { name: object_name, material, meshes, matrices });
+                        self.objects.push(Object {
+                            name: object_name,
+                            material,
+                            meshes,
+                            matrices,
+                        });
 
                         // SFX Blocks?
                         if object_array.len() > 9 {
@@ -606,8 +666,8 @@ impl BWX {
         }
 
         // Re-calculate vertex normals
-        self.objects.iter_mut().for_each(|o|
-            o.meshes.iter_mut().for_each(|m|
+        self.objects.iter_mut().for_each(|o| {
+            o.meshes.iter_mut().for_each(|m| {
                 m.sub_meshes.iter_mut().for_each(|sm| {
                     for i in 0..m.indices.len() / 3 {
                         let a = m.indices[i * 3] as usize;
@@ -619,9 +679,11 @@ impl BWX {
                         sm.vertices[a].normal += normal;
                         sm.vertices[b].normal += normal;
                         sm.vertices[c].normal += normal;
-                    };
+                    }
                     sm.vertices.iter_mut().for_each(|v| v.normal.normalize());
-                })));
+                })
+            })
+        });
 
         Ok(())
     }
@@ -677,7 +739,9 @@ impl BWX {
         let (cow, _encoding, had_errors) = encoding_rs::EUC_KR.decode(&buffer);
         if had_errors {
             error!("Failed to convert string from Korean to UTF-8!");
-            Ok(String::from_utf8_lossy(&buffer).trim_matches('\0').to_string())
+            Ok(String::from_utf8_lossy(&buffer)
+                .trim_matches('\0')
+                .to_string())
         } else {
             Ok(cow.trim_matches('\0').to_string())
         }
@@ -690,7 +754,8 @@ impl BWX {
         let signature = if root { 0x44 } else { self.content.read_u8()? };
 
         let data = match signature {
-            0x41 => { // Signature A
+            0x41 => {
+                // Signature A
                 let (size, mut blocks) = self.read_block_size_number()?;
                 trace!("[Signature A] - Size: {}, Blocks: {}", size, blocks);
                 let mut node = vec![];
@@ -701,7 +766,8 @@ impl BWX {
                 }
                 SlType::Array(node)
             }
-            0x42 => { // Signature B
+            0x42 => {
+                // Signature B
                 let size = self.read_i32_packed()?;
                 trace!("[Signature B] - Size: {}", size);
                 let mut buffer: Vec<u8> = Vec::new();
@@ -709,12 +775,14 @@ impl BWX {
                 self.content.read_exact(&mut buffer)?;
                 SlType::Data(buffer)
             }
-            0x43 => { // Signature C
+            0x43 => {
+                // Signature C
                 let value = -self.content.read_i8()?;
                 trace!("[Signature C] - Value: {}", value);
                 SlType::Char(value)
             }
-            0x44 => { // Signature D
+            0x44 => {
+                // Signature D
                 let (size, mut blocks) = self.read_block_size_number()?;
                 trace!("[Signature D] - Size: {}, Blocks: {}", size, blocks);
                 let mut node = vec![];
@@ -734,32 +802,38 @@ impl BWX {
                 }
                 SlType::Array(node)
             }
-            0x46 => { // Signature F
+            0x46 => {
+                // Signature F
                 let value = self.content.read_f32::<LittleEndian>()?;
                 trace!("[Signature F] - Value: {:.3}", value);
                 SlType::Float(value)
             }
-            0x48 => { // Signature H
+            0x48 => {
+                // Signature H
                 let value = -self.content.read_i16::<LittleEndian>()?;
                 trace!("[Signature H] - Value: {}", value);
                 SlType::Word(value)
             }
-            0x49 => { // Signature I
+            0x49 => {
+                // Signature I
                 let value = self.content.read_i32::<LittleEndian>()?;
                 trace!("[Signature I] - Value: {}", value);
                 SlType::Int(value)
             }
-            0x53 => { // Signature S
+            0x53 => {
+                // Signature S
                 let value = self.read_string()?;
                 trace!("[Signature S] - Value: {}", value);
                 SlType::String(value)
             }
-            0x57 => { // Signature W
+            0x57 => {
+                // Signature W
                 let value = self.content.read_i16::<LittleEndian>()?;
                 trace!("[Signature W] - Value: {}", value);
                 SlType::Word(value)
             }
-            0x59 => { // Signature Y
+            0x59 => {
+                // Signature Y
                 let value = self.content.read_u8()?;
                 trace!("[Signature Y] - Value: {}", value);
                 SlType::UChar(value)
@@ -779,7 +853,11 @@ impl BWX {
                 SlType::Data(buffer)
             }
             _ => {
-                error!("Unhandled signature = 0x{:02x}, position: {}", signature, self.content.position());
+                error!(
+                    "Unhandled signature = 0x{:02x}, position: {}",
+                    signature,
+                    self.content.position()
+                );
                 //debug!("{:#?}", self.node);
                 panic!("Unhandled type {}", signature);
             }
@@ -788,8 +866,7 @@ impl BWX {
     }
 }
 
-fn prepare_matrix(buffer: &mut Cursor<Vec<u8>>) -> Result<Matrix>
-{
+fn prepare_matrix(buffer: &mut Cursor<Vec<u8>>) -> Result<Matrix> {
     // 0 - Timeline, based on 160, in u32
     // 1 ~ 16, 4x4 Matrix in f32, column-major order, for eg.
     // 17 ~ 23, unknown data, for eg.
@@ -832,24 +909,46 @@ fn get_direction(direction: i32) -> Result<String> {
     Ok(std::str::from_utf8(&buffer).unwrap().to_string())
 }
 
-fn prepare_index_array(object_name: &str, direction: &str,
-                       index_buffer: Vec<u16>, patch: &PatchFile) -> Result<Vec<u16>> {
+fn prepare_index_array(
+    object_name: &str,
+    direction: &str,
+    index_buffer: Vec<u16>,
+    patch: &PatchFile,
+) -> Result<Vec<u16>> {
     let mut direction_flip = direction.starts_with("MSHX");
     let object_name_uppercase = object_name.to_uppercase();
 
-    if patch.mesh.names.iter().map(|x| x.to_uppercase()).any(|x| x == object_name_uppercase) {
+    if patch
+        .mesh
+        .names
+        .iter()
+        .map(|x| x.to_uppercase())
+        .any(|x| x == object_name_uppercase)
+    {
         debug!("Patching '{}'", object_name);
         direction_flip = !direction_flip;
     }
 
     // Flip / delete face
-    let (face_flip, face_delete) =
-        if let Some(f) =
-        if let Some(ref f) =
-        patch.face { f.clone() } else { vec![] }
-            .iter().find(|x| x.name.to_uppercase().contains(&object_name_uppercase)) {
-            (f.flip.clone(), if let Some(d) = &f.delete { d.clone() } else { vec![] })
-        } else { (vec![], vec![]) };
+    let (face_flip, face_delete) = if let Some(f) = if let Some(ref f) = patch.face {
+        f.clone()
+    } else {
+        vec![]
+    }
+    .iter()
+    .find(|x| x.name.to_uppercase().contains(&object_name_uppercase))
+    {
+        (
+            f.flip.clone(),
+            if let Some(d) = &f.delete {
+                d.clone()
+            } else {
+                vec![]
+            },
+        )
+    } else {
+        (vec![], vec![])
+    };
 
     let mut indices = vec![];
     let mut duplicate = vec![];
@@ -860,7 +959,10 @@ fn prepare_index_array(object_name: &str, direction: &str,
         let c = index_buffer[i * 3 + 2];
 
         if duplicate.contains(&[a, b, c]) {
-            warn!("Ignore duplicate triangle face {}: {} / {} / {}", i, a, b, c);
+            warn!(
+                "Ignore duplicate triangle face {}: {} / {} / {}",
+                i, a, b, c
+            );
             continue;
         } else {
             duplicate.push([a, b, c]);
@@ -879,7 +981,9 @@ fn prepare_index_array(object_name: &str, direction: &str,
         let (a, b, c) = if face_flip.contains(&[a, b, c]) {
             debug!("Flip face {}: {} / {} / {}", i, a, b, c);
             (a, c, b)
-        } else { (a, b, c) };
+        } else {
+            (a, b, c)
+        };
 
         indices.push(a);
         indices.push(b);
@@ -896,9 +1000,15 @@ mod tests {
     fn check_bwx_header() {
         let mut bwx = BWX::new();
         bwx.content = Cursor::new(vec![66, 87, 88, 70]);
-        assert!(bwx.check_bwx_header().is_ok(), "File header check should pass");
+        assert!(
+            bwx.check_bwx_header().is_ok(),
+            "File header check should pass"
+        );
         bwx.content = Cursor::new(vec![11, 22, 33, 44]);
-        assert!(bwx.check_bwx_header().is_err(), "File header check should fail");
+        assert!(
+            bwx.check_bwx_header().is_err(),
+            "File header check should fail"
+        );
     }
 
     #[test]
@@ -906,9 +1016,17 @@ mod tests {
         let mut bwx = BWX::new();
         // Data from "EXTERNAL_UI_DEFAULT.PNX"
         bwx.content = Cursor::new(vec![0xc1, 0xef, 0x5a, 0x0c]);
-        assert_eq!(bwx.read_i32_packed().unwrap(), 1488833, "Packed integer value incorrect");
+        assert_eq!(
+            bwx.read_i32_packed().unwrap(),
+            1488833,
+            "Packed integer value incorrect"
+        );
         bwx.content = Cursor::new(vec![0x0c, 0x02]);
-        assert_eq!(bwx.read_i32_packed().unwrap(), 12, "Packed integer value incorrect");
+        assert_eq!(
+            bwx.read_i32_packed().unwrap(),
+            12,
+            "Packed integer value incorrect"
+        );
     }
 
     #[test]
@@ -916,6 +1034,10 @@ mod tests {
         let mut bwx = BWX::new();
         // Data from "EXTERNAL_UI_DEFAULT.PNX"
         bwx.content = Cursor::new(vec![0x02, 0x30, 0x00, 0x53]);
-        assert_eq!(bwx.read_string().unwrap().as_str(), "0", "The string should be '0'");
+        assert_eq!(
+            bwx.read_string().unwrap().as_str(),
+            "0",
+            "The string should be '0'"
+        );
     }
 }

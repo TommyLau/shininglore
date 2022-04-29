@@ -1,14 +1,14 @@
 use crate::bwx::*;
 use crate::math::Vec3;
+use byteorder::{LittleEndian, WriteBytesExt};
+use gltf::json::{self, validation::Checked::Valid};
+use image::GenericImageView;
+use serde_json::json;
 use std::io::Cursor;
 use std::mem;
-use std::path::PathBuf;
-use byteorder::{LittleEndian, WriteBytesExt};
-use tracing::{debug, error};
-use gltf::json::{self, validation::Checked::Valid};
-use serde_json::json;
 use std::path::Path;
-use image::GenericImageView;
+use std::path::PathBuf;
+use tracing::{debug, error};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -40,7 +40,9 @@ impl Gltf {
     }
 
     pub fn load_from_bwx<T>(&mut self, filename: T) -> Result<()>
-        where T: AsRef<Path> {
+    where
+        T: AsRef<Path>,
+    {
         self.filename = filename.as_ref().into();
         /*
         debug!("{:#?}", self.filename);
@@ -60,7 +62,9 @@ impl Gltf {
     }
 
     pub fn save_gltf<T>(&mut self, output_path: T) -> Result<()>
-        where T: AsRef<Path> {
+    where
+        T: AsRef<Path>,
+    {
         for o in &self.bwx.objects {
             debug!("Name: {:?}, Material: {}", o.name, o.material);
             for m in &o.meshes {
@@ -78,14 +82,19 @@ impl Gltf {
                     let base_color_texture = if sub_material.filename.is_some() {
                         // Have texture
                         let image_id = self.images.len() as u32;
-                        self.images.push(prepare_json_image(sub_material.filename.clone()));
+                        self.images
+                            .push(prepare_json_image(sub_material.filename.clone()));
                         let texture_id = self.textures.len() as u32;
                         self.textures.push(prepare_json_texture(image_id));
                         Some(prepare_json_texture_info(texture_id))
-                    } else { None };
+                    } else {
+                        None
+                    };
 
                     self.materials.push(prepare_json_material(
-                        &material_group.name, base_color_texture));
+                        &material_group.name,
+                        base_color_texture,
+                    ));
                 }
 
                 // ============================================================
@@ -140,16 +149,24 @@ impl Gltf {
                     // Store the children
                     node_index.push(self.nodes.len() as u32);
                     self.nodes.push(prepare_json_node(
-                        None, Some(json::Index::new(self.meshes.len() as u32)),
-                        None, None, None, None));
+                        None,
+                        Some(json::Index::new(self.meshes.len() as u32)),
+                        None,
+                        None,
+                        None,
+                        None,
+                    ));
 
                     // Mesh
                     self.meshes.push(prepare_json_mesh(
                         self.accessors.len() as u32,
                         accessor_index_id,
-                        if o.material < 0 { None } else {
+                        if o.material < 0 {
+                            None
+                        } else {
                             Some(sub_material.material_id)
-                        }));
+                        },
+                    ));
 
                     // Vertex
                     let mut v_min = Vec3::new([0.0, 0.0, 0.0]);
@@ -172,12 +189,24 @@ impl Gltf {
 
                         if v_set {
                             let v = v.position;
-                            if v.x > v_max.x { v_max.x = v.x; }
-                            if v.y > v_max.y { v_max.y = v.y; }
-                            if v.z > v_max.z { v_max.z = v.z; }
-                            if v.x < v_min.x { v_min.x = v.x; }
-                            if v.y < v_min.y { v_min.y = v.y; }
-                            if v.z < v_min.z { v_min.z = v.z; }
+                            if v.x > v_max.x {
+                                v_max.x = v.x;
+                            }
+                            if v.y > v_max.y {
+                                v_max.y = v.y;
+                            }
+                            if v.z > v_max.z {
+                                v_max.z = v.z;
+                            }
+                            if v.x < v_min.x {
+                                v_min.x = v.x;
+                            }
+                            if v.y < v_min.y {
+                                v_min.y = v.y;
+                            }
+                            if v.z < v_min.z {
+                                v_min.z = v.z;
+                            }
                         } else {
                             v_min = v.position;
                             v_max = v.position;
@@ -238,7 +267,9 @@ impl Gltf {
                     None,
                     Some(o.name.clone()),
                     Some(json::scene::UnitQuaternion(rotation)),
-                    Some(scale), Some(translation)));
+                    Some(scale),
+                    Some(translation),
+                ));
 
                 // ============================================================
                 // Generate Matrix Based Animation
@@ -256,9 +287,15 @@ impl Gltf {
                     // Could use system's array.as_bytes, but cannot ensure when running on big endian system
                     // So use the old school byteorder method
                     tl_buffer.write_f32::<LittleEndian>(timeline)?;
-                    for v in translation { t_buffer.write_f32::<LittleEndian>(v)?; }
-                    for v in rotation { r_buffer.write_f32::<LittleEndian>(v)?; }
-                    for v in scale { s_buffer.write_f32::<LittleEndian>(v)?; }
+                    for v in translation {
+                        t_buffer.write_f32::<LittleEndian>(v)?;
+                    }
+                    for v in rotation {
+                        r_buffer.write_f32::<LittleEndian>(v)?;
+                    }
+                    for v in scale {
+                        s_buffer.write_f32::<LittleEndian>(v)?;
+                    }
 
                     if timeline > timeline_max {
                         timeline_max = timeline;
@@ -343,30 +380,55 @@ impl Gltf {
                 // ------------------------------------------------------------
                 // Samplers - Translation
                 let sampler_translation = self.samplers.len() as u32;
-                self.samplers.push(prepare_json_animation_sampler(accessor_input, accessor_translation));
+                self.samplers.push(prepare_json_animation_sampler(
+                    accessor_input,
+                    accessor_translation,
+                ));
                 // Samplers - Rotation
                 let sampler_rotation = self.samplers.len() as u32;
-                self.samplers.push(prepare_json_animation_sampler(accessor_input, accessor_rotation));
+                self.samplers.push(prepare_json_animation_sampler(
+                    accessor_input,
+                    accessor_rotation,
+                ));
                 // Samplers - Scale
                 let sampler_scale = self.samplers.len() as u32;
-                self.samplers.push(prepare_json_animation_sampler(accessor_input, accessor_scale));
+                self.samplers.push(prepare_json_animation_sampler(
+                    accessor_input,
+                    accessor_scale,
+                ));
 
                 // ------------------------------------------------------------
                 // <<< Channels >>>
                 // ------------------------------------------------------------
                 // Channel - Translation
                 self.channels.push(prepare_json_animation_channel(
-                    sampler_translation, node_id, json::animation::Property::Translation));
+                    sampler_translation,
+                    node_id,
+                    json::animation::Property::Translation,
+                ));
                 // Channel - Rotation
                 self.channels.push(prepare_json_animation_channel(
-                    sampler_rotation, node_id, json::animation::Property::Rotation));
+                    sampler_rotation,
+                    node_id,
+                    json::animation::Property::Rotation,
+                ));
                 // Channel - Scale
                 self.channels.push(prepare_json_animation_channel(
-                    sampler_scale, node_id, json::animation::Property::Scale));
+                    sampler_scale,
+                    node_id,
+                    json::animation::Property::Scale,
+                ));
             }
         }
 
-        let mut split_name: Vec<_> = self.filename.file_stem().unwrap().to_str().unwrap().split('_').collect();
+        let mut split_name: Vec<_> = self
+            .filename
+            .file_stem()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .split('_')
+            .collect();
         let animation_name = split_name.pop().unwrap().to_lowercase();
         let scene_name = split_name.join("_");
 
@@ -389,14 +451,20 @@ impl Gltf {
 
         let root_node_id = self.nodes.len() as u32;
         self.nodes.push(prepare_json_node(
-            Some(self.node_indices.iter().map(|x| json::Index::new(*x)).collect()),
+            Some(
+                self.node_indices
+                    .iter()
+                    .map(|x| json::Index::new(*x))
+                    .collect(),
+            ),
             None,
             Some(scene_name.clone()),
             // Rotate -90 degrees along X axis
             Some(json::scene::UnitQuaternion([-0.707, 0.0, 0.0, 0.707])),
             // Scale to 0.1
             Some([0.1, 0.1, 0.1]),
-            None));
+            None,
+        ));
 
         let root = json::Root {
             asset,
@@ -452,7 +520,12 @@ impl Gltf {
                 let tga_file = std::path::PathBuf::from(texture).with_extension("TGA");
                 let paths = vec![
                     self.filename.parent().unwrap().join(""),
-                    self.filename.parent().unwrap().parent().unwrap().join("TGA"),
+                    self.filename
+                        .parent()
+                        .unwrap()
+                        .parent()
+                        .unwrap()
+                        .join("TGA"),
                     std::path::PathBuf::from("Assets/Graphic/PROPIN/WORLD01/TGA"),
                     std::path::PathBuf::from("Assets/Graphic/BUILDINGEX/WORLD01/TGA"),
                     std::path::PathBuf::from("Assets/Graphic/NPC/WORLD01/TGA"),
@@ -464,7 +537,11 @@ impl Gltf {
                     debug!("Found TGA at '{}'", p.display());
                     let img = image::open(p)?.flipv();
                     // The dimensions and color
-                    debug!("\tdimensions: {:?}, color: {:?}", img.dimensions(), img.color());
+                    debug!(
+                        "\tdimensions: {:?}, color: {:?}",
+                        img.dimensions(),
+                        img.color()
+                    );
                     // Write the contents of this image to the Writer in PNG format.
                     img.save(file)?;
                 } else {
@@ -485,7 +562,7 @@ fn matrix_decomposed(matrix: &[f32; 16]) -> ([f32; 3], [f32; 4], [f32; 3]) {
             [matrix[4], matrix[5], matrix[6], matrix[7]],
             [matrix[8], matrix[9], matrix[10], matrix[11]],
             [matrix[12], matrix[13], matrix[14], matrix[15]],
-        ]
+        ],
     };
     matrix.decomposed()
 }
@@ -532,7 +609,10 @@ fn prepare_json_texture_info(texture_index: u32) -> json::texture::Info {
     }
 }
 
-fn prepare_json_material(material_name: &str, base_color_texture: Option<json::texture::Info>) -> json::Material {
+fn prepare_json_material(
+    material_name: &str,
+    base_color_texture: Option<json::texture::Info>,
+) -> json::Material {
     json::Material {
         alpha_cutoff: None,
         // TODO: Update to Alpha Blend when texture is RGBA format
@@ -559,12 +639,13 @@ fn prepare_json_material(material_name: &str, base_color_texture: Option<json::t
     }
 }
 
-fn prepare_json_node(children: Option<Vec<json::Index<json::scene::Node>>>,
-                     mesh: Option<json::Index<json::mesh::Mesh>>,
-                     name: Option<String>,
-                     rotation: Option<json::scene::UnitQuaternion>,
-                     scale: Option<[f32; 3]>,
-                     translation: Option<[f32; 3]>,
+fn prepare_json_node(
+    children: Option<Vec<json::Index<json::scene::Node>>>,
+    mesh: Option<json::Index<json::mesh::Mesh>>,
+    name: Option<String>,
+    rotation: Option<json::scene::UnitQuaternion>,
+    scale: Option<[f32; 3]>,
+    translation: Option<[f32; 3]>,
 ) -> json::Node {
     json::Node {
         camera: None,
@@ -582,7 +663,11 @@ fn prepare_json_node(children: Option<Vec<json::Index<json::scene::Node>>>,
     }
 }
 
-fn prepare_json_mesh(accessor_index: u32, indices_index: u32, material_id: Option<u32>) -> json::Mesh {
+fn prepare_json_mesh(
+    accessor_index: u32,
+    indices_index: u32,
+    material_id: Option<u32>,
+) -> json::Mesh {
     json::Mesh {
         extensions: Default::default(),
         extras: Default::default(),
@@ -591,9 +676,18 @@ fn prepare_json_mesh(accessor_index: u32, indices_index: u32, material_id: Optio
         primitives: vec![json::mesh::Primitive {
             attributes: {
                 let mut map = std::collections::HashMap::new();
-                map.insert(Valid(json::mesh::Semantic::Positions), json::Index::new(accessor_index));
-                map.insert(Valid(json::mesh::Semantic::Normals), json::Index::new(accessor_index + 1));
-                map.insert(Valid(json::mesh::Semantic::TexCoords(0)), json::Index::new(accessor_index + 2));
+                map.insert(
+                    Valid(json::mesh::Semantic::Positions),
+                    json::Index::new(accessor_index),
+                );
+                map.insert(
+                    Valid(json::mesh::Semantic::Normals),
+                    json::Index::new(accessor_index + 1),
+                );
+                map.insert(
+                    Valid(json::mesh::Semantic::TexCoords(0)),
+                    json::Index::new(accessor_index + 2),
+                );
                 map
             },
             extensions: Default::default(),
@@ -607,10 +701,15 @@ fn prepare_json_mesh(accessor_index: u32, indices_index: u32, material_id: Optio
     }
 }
 
-fn prepare_json_accessor(buffer_view: u32, byte_offset: u32, count: u32,
-                         component_type: json::accessor::ComponentType, type_: json::accessor::Type,
-                         min: Option<serde_json::value::Value>, max: Option<serde_json::value::Value>,
-                         name: Option<String>,
+fn prepare_json_accessor(
+    buffer_view: u32,
+    byte_offset: u32,
+    count: u32,
+    component_type: json::accessor::ComponentType,
+    type_: json::accessor::Type,
+    min: Option<serde_json::value::Value>,
+    max: Option<serde_json::value::Value>,
+    name: Option<String>,
 ) -> json::Accessor {
     json::Accessor {
         buffer_view: Some(json::Index::new(buffer_view)),
@@ -638,7 +737,11 @@ fn prepare_json_animation_sampler(input: u32, output: u32) -> json::animation::S
     }
 }
 
-fn prepare_json_animation_channel(sampler: u32, node: u32, path: json::animation::Property) -> json::animation::Channel {
+fn prepare_json_animation_channel(
+    sampler: u32,
+    node: u32,
+    path: json::animation::Property,
+) -> json::animation::Channel {
     json::animation::Channel {
         sampler: json::Index::new(sampler),
         target: json::animation::Target {
@@ -652,8 +755,13 @@ fn prepare_json_animation_channel(sampler: u32, node: u32, path: json::animation
     }
 }
 
-fn prepare_json_buffer_view(byte_length: u32, byte_offset: Option<u32>, byte_stride: Option<u32>, name: Option<String>,
-                            target: Option<json::validation::Checked<json::buffer::Target>>) -> json::buffer::View {
+fn prepare_json_buffer_view(
+    byte_length: u32,
+    byte_offset: Option<u32>,
+    byte_stride: Option<u32>,
+    name: Option<String>,
+    target: Option<json::validation::Checked<json::buffer::Target>>,
+) -> json::buffer::View {
     json::buffer::View {
         // Only one binary buffer, so always 0
         buffer: json::Index::new(0),

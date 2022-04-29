@@ -613,18 +613,12 @@ impl BWX {
                         let a = m.indices[i * 3] as usize;
                         let b = m.indices[i * 3 + 1] as usize;
                         let c = m.indices[i * 3 + 2] as usize;
-                        let va = sm.vertices[a].position;
-                        let vb = sm.vertices[b].position;
-                        let vc = sm.vertices[c].position;
-                        let v1 = vb - va;
-                        let v2 = vc - va;
+                        let v1 = sm.vertices[b].position - sm.vertices[a].position;
+                        let v2 = sm.vertices[c].position - sm.vertices[a].position;
                         let normal = v1.cross(v2).normalize();
-                        let na = sm.vertices[a].normal + normal;
-                        let nb = sm.vertices[b].normal + normal;
-                        let nc = sm.vertices[c].normal + normal;
-                        sm.vertices[a].normal = na;
-                        sm.vertices[b].normal = nb;
-                        sm.vertices[c].normal = nc;
+                        sm.vertices[a].normal += normal;
+                        sm.vertices[b].normal += normal;
+                        sm.vertices[c].normal += normal;
                     }
 
                     for v in &mut sm.vertices {

@@ -606,27 +606,22 @@ impl BWX {
         }
 
         // Re-calculate vertex normals
-        for o in &mut self.objects {
-            for m in &mut o.meshes {
-                for sm in &mut m.sub_meshes {
+        self.objects.iter_mut().for_each(|o|
+            o.meshes.iter_mut().for_each(|m|
+                m.sub_meshes.iter_mut().for_each(|sm| {
                     for i in 0..m.indices.len() / 3 {
                         let a = m.indices[i * 3] as usize;
                         let b = m.indices[i * 3 + 1] as usize;
                         let c = m.indices[i * 3 + 2] as usize;
-                        let v1 = sm.vertices[b].position - sm.vertices[a].position;
-                        let v2 = sm.vertices[c].position - sm.vertices[a].position;
-                        let normal = v1.cross(v2).normalize();
+                        let mut normal = (sm.vertices[b].position - sm.vertices[a].position)
+                            .cross(sm.vertices[c].position - sm.vertices[a].position);
+                        normal.normalize();
                         sm.vertices[a].normal += normal;
                         sm.vertices[b].normal += normal;
                         sm.vertices[c].normal += normal;
-                    }
-
-                    for v in &mut sm.vertices {
-                        v.normal = v.normal.normalize();
-                    }
-                }
-            }
-        }
+                    };
+                    sm.vertices.iter_mut().for_each(|v| v.normal.normalize());
+                })));
 
         Ok(())
     }

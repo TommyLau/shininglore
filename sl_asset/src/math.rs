@@ -32,13 +32,11 @@ impl Vec3 {
         }
     }
 
-    pub fn normalize(self) -> Self {
+    pub fn normalize(&mut self) {
         let mag = self.magnitude();
         // Add check to avoid NaN error!
         if mag > f32::EPSILON {
-            self * (1.0f32 / mag)
-        } else {
-            self
+            self.multiply(1.0f32 / mag)
         }
     }
 

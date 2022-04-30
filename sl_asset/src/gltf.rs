@@ -459,10 +459,16 @@ impl Gltf {
             ),
             None,
             Some(scene_name.clone()),
-            // Rotate -90 degrees along X axis
-            Some(json::scene::UnitQuaternion([-0.707, 0.0, 0.0, 0.707])),
-            // Scale to 0.1
-            Some([0.1, 0.1, 0.1]),
+            // Rotate -90 degrees along X axis, as ShiningLore is using +Z Up
+            Some(json::scene::UnitQuaternion([
+                -std::f32::consts::FRAC_1_SQRT_2,
+                0.0,
+                0.0,
+                std::f32::consts::FRAC_1_SQRT_2,
+            ])),
+            // Guessing ShiningLore is using inch as length unit.
+            // Scale 0.0254 to mapping original model to unit length of meter(m)
+            Some([0.0254, 0.0254, 0.0254]),
             None,
         ));
 

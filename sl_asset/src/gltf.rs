@@ -617,7 +617,8 @@ fn prepare_json_material(
         alpha_cutoff: None,
         // TODO: Update to Alpha Blend when texture is RGBA format
         alpha_mode: Default::default(),
-        // Because the normal faces' error, use double sided texture
+        // Keep "Double Sided" after vertex normal had been fixed, because some meshes have only one face,
+        // when look at the back side it will be transparent, especially for hair or something.
         double_sided: true,
         name: Some(material_name.into()),
         pbr_metallic_roughness: json::material::PbrMetallicRoughness {

@@ -459,6 +459,7 @@ impl BWX {
                                 .iter()
                                 .map(|x| x.int().unwrap() as u16)
                                 .collect();
+                            remove_face(&object_name, &mut indices, &patch);
                             sub_meshes.iter_mut().for_each(|sm| {
                                 remove_unused_vertex(&mut sm.vertices, &mut indices);
                             });
@@ -621,6 +622,7 @@ impl BWX {
                             for _ in 0..index_count {
                                 indices.push(index_buffer.read_u16::<LittleEndian>()?);
                             }
+                            remove_face(&object_name, &mut indices, &patch);
                             sub_meshes.iter_mut().for_each(|sm| {
                                 remove_unused_vertex(&mut sm.vertices, &mut indices);
                             });
@@ -1011,6 +1013,51 @@ fn remove_unused_vertex(vertices: &mut Vec<Vertex>, indices: &mut Vec<u16>) {
             };
         });
     });
+}
+
+fn remove_face(object_name: &str, indices: &mut Vec<u16>, patch: &PatchFile) {
+    let object_name_uppercase = object_name.to_uppercase();
+    let face_delete = if let Some(f) = if let Some(ref f) = patch.face {
+        f.clone()
+    } else {
+        vec![]
+    }
+    .iter()
+    .find(|x| x.name.to_uppercase().contains(&object_name_uppercase))
+    {
+        if let Some(d) = &f.delete {
+            d.clone()
+        } else {
+            vec![]
+        }
+    } else {
+        vec![]
+    };
+
+    if face_delete.is_empty() {
+        return;
+    }
+
+    debug!("Before delete: {:?}", indices);
+    let tmp = indices.clone();
+    indices.clear();
+
+    for i in 0..tmp.len() / 3 {
+        let a = tmp[i * 3];
+        let b = tmp[i * 3 + 1];
+        let c = tmp[i * 3 + 2];
+
+        // Delete the specific face
+        if face_delete.contains(&[a, b, c]) {
+            debug!("Delete face {}: {} / {} / {}", i, a, b, c);
+            continue;
+        };
+
+        indices.push(a);
+        indices.push(b);
+        indices.push(c);
+    }
+    debug!("After  delete: {:?}", indices);
 }
 
 #[cfg(test)]

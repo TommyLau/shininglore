@@ -449,33 +449,6 @@ impl Gltf {
             version: "2.0".to_string(),
         };
 
-        let root_node_id = self.nodes.len() as u32;
-        self.nodes.push(prepare_json_node(
-            Some(
-                self.node_indices
-                    .iter()
-                    .map(|x| json::Index::new(*x))
-                    .collect(),
-            ),
-            None,
-            Some(scene_name.clone()),
-            /*
-            // Rotate -90 degrees along X axis, as ShiningLore is using +Z Up
-            Some(json::scene::UnitQuaternion([
-                -std::f32::consts::FRAC_1_SQRT_2,
-                0.0,
-                0.0,
-                std::f32::consts::FRAC_1_SQRT_2,
-            ])),
-             */
-            None,
-            // Guessing ShiningLore is using inch as length unit.
-            // Scale 0.0254 to mapping original model to unit length of meter(m)
-            // Some([0.0254, 0.0254, 0.0254]),
-            None,
-            None,
-        ));
-
         let root = json::Root {
             asset,
             scene: Some(json::Index::new(0)),
@@ -484,7 +457,11 @@ impl Gltf {
                 extras: Default::default(),
                 // name: Some(scene_name),
                 name: None,
-                nodes: vec![json::Index::new(root_node_id)],
+                nodes: self
+                    .node_indices
+                    .iter()
+                    .map(|x| json::Index::new(*x))
+                    .collect(),
             }],
             nodes: self.nodes.clone(),
             meshes: self.meshes.clone(),

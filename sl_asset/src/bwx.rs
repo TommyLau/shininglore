@@ -1,4 +1,4 @@
-use crate::math::Vec3;
+use crate::math::*;
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Read};
 use std::iter::zip;
@@ -6,6 +6,37 @@ use std::path::Path;
 use tracing::{debug, error, info, trace, warn};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+
+// Matrix, scale to 0.0254, rotate -90 degrees along x axis
+// translation: [0.0, 0.0, 0.0],
+// rotation: [-std::f32::consts::FRAC_1_SQRT_2, 0.0, 0.0, std::f32::consts::FRAC_1_SQRT_2],
+// scale: [0.0254, 0.0254, 0.0254],
+const CONVERT_MATRIX: Mat4 = Mat4 {
+    x: Vec4 {
+        x: 0.02539999969303607940673828125,
+        y: 0.0,
+        z: 0.0,
+        w: 0.0,
+    },
+    y: Vec4 {
+        x: 0.0,
+        y: 0.00000000151395795899844642917742021381855010986328125,
+        z: -0.02539999783039093017578125,
+        w: 0.0,
+    },
+    z: Vec4 {
+        x: 0.0,
+        y: 0.02539999783039093017578125,
+        z: 0.00000000151395795899844642917742021381855010986328125,
+        w: 0.0,
+    },
+    w: Vec4 {
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+        w: 1.0,
+    },
+};
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 struct PatchFileMesh {
@@ -887,9 +918,9 @@ fn prepare_matrix(buffer: &mut Cursor<Vec<u8>>) -> Result<Matrix> {
     // | -0.2165474,   -0.026197463, -0.9594297,    16.080942 |
     // | -0.103003055,  0.9785,      -0.0034697813, 53.538746 |
     // |  0.0,          0.0,          0.0,          1.0       |
-    Ok(Matrix {
-        timeline: buffer.read_i32::<LittleEndian>()?,
-        matrix: [
+    let timeline = buffer.read_i32::<LittleEndian>()?;
+    let matrix = (CONVERT_MATRIX
+        * Mat4::new([
             buffer.read_f32::<LittleEndian>()?,
             buffer.read_f32::<LittleEndian>()?,
             buffer.read_f32::<LittleEndian>()?,
@@ -906,8 +937,9 @@ fn prepare_matrix(buffer: &mut Cursor<Vec<u8>>) -> Result<Matrix> {
             buffer.read_f32::<LittleEndian>()?,
             buffer.read_f32::<LittleEndian>()?,
             buffer.read_f32::<LittleEndian>()?,
-        ],
-    })
+        ]))
+    .as_array();
+    Ok(Matrix { timeline, matrix })
 }
 
 fn get_direction(direction: i32) -> Result<String> {

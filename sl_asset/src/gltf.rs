@@ -431,13 +431,16 @@ impl Gltf {
             .collect();
         let animation_name = split_name.pop().unwrap().to_lowercase();
         let scene_name = split_name.join("_");
+        let filename = PathBuf::from(self.filename.file_stem().unwrap());
+        let file_gltf = filename.with_extension("gltf");
+        let file_bin = filename.with_extension("bin");
 
         let buffer_json = json::Buffer {
             byte_length: self.buffer.len() as u32,
             extensions: Default::default(),
             extras: Default::default(),
             name: None,
-            uri: Some(scene_name.clone() + ".bin"),
+            uri: Some(file_bin.display().to_string()),
         };
 
         let asset = json::Asset {
@@ -455,8 +458,7 @@ impl Gltf {
             scenes: vec![json::Scene {
                 extensions: Default::default(),
                 extras: Default::default(),
-                // name: Some(scene_name),
-                name: None,
+                name: Some(scene_name.clone()),
                 nodes: self
                     .node_indices
                     .iter()
@@ -488,10 +490,13 @@ impl Gltf {
             std::fs::create_dir_all(path)?;
         }
 
-        let filename = path.join(&scene_name);
-        let file_gltf = filename.with_extension("gltf");
-        let file_bin = filename.with_extension("bin");
-        debug!("ext: {:#?}, bin: {:#?}", file_gltf, file_bin);
+        let file_gltf = path.join(file_gltf);
+        let file_bin = path.join(file_bin);
+        debug!(
+            "ext: {:#?}, bin: {:#?}",
+            file_gltf.display(),
+            file_bin.display()
+        );
 
         std::fs::write(file_gltf, j.as_bytes())?;
         std::fs::write(file_bin, self.buffer.clone())?;
